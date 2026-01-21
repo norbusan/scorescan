@@ -1,32 +1,56 @@
-FROM python:3.11-slim
+# Use Ubuntu 24.04 as base for Audiveris compatibility
+FROM ubuntu:24.04
 
 WORKDIR /app
 
-# Install system dependencies
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python and system dependencies
 RUN apt-get update && apt-get install -y \
-    default-jre \
+    python3.12 \
+    python3.12-venv \
+    python3-pip \
     wget \
-    unzip \
     libfreetype6 \
     fontconfig \
+    libasound2t64 \
+    libxext6 \
+    libxrender1 \
+    libxtst6 \
+    libxi6 \
+    fuse \
+    libfuse2t64 \
+    libgtk-3-0 \
+    libnss3 \
+    libgbm1 \
+    libxss1 \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Audiveris
-RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.3.1/Audiveris_Setup-5.3.1-linux-x64.zip -O /tmp/audiveris.zip \
-    && unzip /tmp/audiveris.zip -d /opt/audiveris \
-    && rm /tmp/audiveris.zip \
-    && chmod +x /opt/audiveris/bin/Audiveris
+# Install Audiveris 5.9.0 from .deb package (includes JRE)
+RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.9.0/Audiveris-5.9.0-ubuntu24.04-x86_64.deb -O /tmp/audiveris.deb \
+    && apt-get update \
+    && apt-get install -y /tmp/audiveris.deb \
+    && rm /tmp/audiveris.deb \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install MuseScore
-RUN wget -q https://cdn.jsdelivr.net/musescore/v4.2.1/MuseScore-4.2.1.240230938-x86_64.AppImage -O /opt/musescore.AppImage \
+# Install MuseScore 4 AppImage
+RUN wget -q https://github.com/musescore/MuseScore/releases/download/v4.4.4/MuseScore-Studio-4.4.4.243461245-x86_64.AppImage -O /opt/musescore.AppImage \
     && chmod +x /opt/musescore.AppImage
 
-ENV PATH="/opt/audiveris/bin:${PATH}"
+# Set environment variables
+ENV AUDIVERIS_PATH="/opt/audiveris/bin/Audiveris"
 ENV MUSESCORE_PATH="/opt/musescore.AppImage"
+ENV QT_QPA_PLATFORM=offscreen
+
+# Create symlink for python
+RUN ln -sf /usr/bin/python3.12 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3 /usr/bin/python
 
 # Copy requirements first for caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 # Copy application code
 COPY . .
@@ -36,4 +60,4 @@ RUN mkdir -p storage/uploads storage/musicxml storage/pdf
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

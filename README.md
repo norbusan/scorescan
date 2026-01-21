@@ -15,12 +15,12 @@ A web application for converting music score images to MusicXML and PDF with opt
 ## Tech Stack
 
 ### Backend
-- **Python 3.11** with **FastAPI**
+- **Python 3.12** with **FastAPI**
 - **SQLite** database with SQLAlchemy ORM
-- **Celery** + **Redis** for async task processing
-- **Audiveris** for OMR (Optical Music Recognition)
+- **Celery** + **Valkey** for async task processing
+- **Audiveris 5.9** for OMR (Optical Music Recognition)
 - **music21** for transposition
-- **MuseScore 4** for PDF generation
+- **MuseScore 4.4** for PDF generation
 
 ### Frontend
 - **React 18** with TypeScript
@@ -33,10 +33,11 @@ A web application for converting music score images to MusicXML and PDF with opt
 
 - Docker and Docker Compose
 - (For local development without Docker)
-  - Python 3.11+
+  - Python 3.12+
   - Node.js 18+
-  - Java 17+ (for Audiveris)
-  - MuseScore 4
+  - Java 21+ (bundled with Audiveris 5.9 .deb package)
+  - Audiveris 5.9
+  - MuseScore 4.4
 
 ## Quick Start with Docker
 
@@ -84,9 +85,9 @@ A web application for converting music score images to MusicXML and PDF with opt
    # Edit .env with your local settings
    ```
 
-4. **Start Redis** (required for Celery)
+4. **Start Valkey** (required for Celery)
    ```bash
-   docker run -d -p 6379:6379 redis:7-alpine
+   docker run -d -p 6379:6379 valkey/valkey:8-alpine
    ```
 
 5. **Start the backend server**
@@ -194,7 +195,7 @@ ScoreScan/
 |----------|-------------|---------|
 | `SECRET_KEY` | JWT signing key | (required) |
 | `DATABASE_URL` | SQLite connection URL | `sqlite:///./storage/scorescan.db` |
-| `REDIS_URL` | Redis connection URL | `redis://localhost:6379/0` |
+| `REDIS_URL` | Valkey/Redis connection URL | `redis://localhost:6379/0` |
 | `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:5173` |
 | `STORAGE_PATH` | File storage directory | `./storage` |
 | `MAX_UPLOAD_SIZE_MB` | Max upload size | `50` |

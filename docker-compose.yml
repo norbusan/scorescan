@@ -9,14 +9,14 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./storage/scorescan.db
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://valkey:6379/0
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - STORAGE_PATH=/app/storage
       - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
     volumes:
       - ./backend/storage:/app/storage
     depends_on:
-      - redis
+      - valkey
     networks:
       - scorescan-network
 
@@ -26,23 +26,23 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       - DATABASE_URL=sqlite:///./storage/scorescan.db
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://valkey:6379/0
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - STORAGE_PATH=/app/storage
     volumes:
       - ./backend/storage:/app/storage
     depends_on:
-      - redis
+      - valkey
       - backend
     networks:
       - scorescan-network
 
-  redis:
-    image: redis:7-alpine
+  valkey:
+    image: valkey/valkey:8-alpine
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - valkey-data:/data
     networks:
       - scorescan-network
 
@@ -60,7 +60,7 @@ services:
       - scorescan-network
 
 volumes:
-  redis-data:
+  valkey-data:
 
 networks:
   scorescan-network:

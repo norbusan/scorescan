@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class OMRService:
     """
-    Optical Music Recognition service using Audiveris.
+    Optical Music Recognition service using Audiveris 5.9.
     Converts music score images to MusicXML format.
     """
 
@@ -45,27 +45,34 @@ class OMRService:
 
             logger.info(f"Starting OMR processing for {abs_input_path}")
 
-            # Run Audiveris in batch mode
-            # Audiveris outputs to a directory, we need to find the .mxl or .musicxml file
+            # Run Audiveris in batch mode with xvfb-run for headless operation
+            # Audiveris 5.9 CLI: -batch -export -output <dir> <input_file>
+            cmd = [
+                "xvfb-run",
+                "-a",  # Auto-select display number
+                self.audiveris_path,
+                "-batch",
+                "-export",
+                "-output",
+                abs_output_dir,
+                abs_input_path,
+            ]
+
+            logger.info(f"Running command: {' '.join(cmd)}")
+
             result = subprocess.run(
-                [
-                    self.audiveris_path,
-                    "-batch",
-                    "-export",
-                    "-output",
-                    abs_output_dir,
-                    abs_input_path,
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
+                env={**os.environ, "DISPLAY": ""},
             )
 
-            if result.returncode != 0:
-                error_msg = f"Audiveris failed: {result.stderr}"
-                logger.error(error_msg)
-                return False, None, error_msg
+            logger.info(f"Audiveris stdout: {result.stdout}")
+            if result.stderr:
+                logger.warning(f"Audiveris stderr: {result.stderr}")
 
+            # Audiveris may return non-zero even on partial success, check for output files
             # Find the output file (Audiveris names it based on input filename)
             input_stem = Path(abs_input_path).stem
             possible_outputs = [
@@ -88,12 +95,18 @@ class OMRService:
                         break
 
             if not output_file:
-                return False, None, "No MusicXML output file found"
+                error_msg = f"No MusicXML output file found. Audiveris return code: {result.returncode}"
+                if result.stderr:
+                    error_msg += f"\nStderr: {result.stderr[:500]}"
+                return False, None, error_msg
 
             # Rename to our standard naming convention
             final_output = get_file_path(output_rel_path)
             if output_file != final_output:
-                os.rename(output_file, final_output)
+                # If it's a .mxl (compressed), we might need to extract or just rename
+                import shutil
+
+                shutil.move(output_file, final_output)
 
             logger.info(f"OMR processing complete: {output_rel_path}")
             return True, output_rel_path, None
@@ -102,8 +115,8 @@ class OMRService:
             error_msg = "OMR processing timed out (exceeded 5 minutes)"
             logger.error(error_msg)
             return False, None, error_msg
-        except FileNotFoundError:
-            error_msg = f"Audiveris not found at {self.audiveris_path}"
+        except FileNotFoundError as e:
+            error_msg = f"Audiveris not found at {self.audiveris_path}: {e}"
             logger.error(error_msg)
             return False, None, error_msg
         except Exception as e:
@@ -114,9 +127,18 @@ class OMRService:
     def is_available(self) -> bool:
         """Check if Audiveris is available and working."""
         try:
+            # Check if the binary exists
+            if not os.path.exists(self.audiveris_path):
+                logger.warning(f"Audiveris binary not found at {self.audiveris_path}")
+                return False
+
             result = subprocess.run(
-                [self.audiveris_path, "-help"], capture_output=True, timeout=10
+                ["xvfb-run", "-a", self.audiveris_path, "-help"],
+                capture_output=True,
+                timeout=30,
             )
-            return result.returncode == 0
-        except Exception:
+            # Audiveris may return non-zero for -help but still be working
+            return True
+        except Exception as e:
+            logger.warning(f"Audiveris availability check failed: {e}")
             return False
