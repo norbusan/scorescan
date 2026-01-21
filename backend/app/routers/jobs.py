@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.schemas.job import JobResponse, JobListResponse, TransposeOptions
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, get_current_user_from_token_or_query
 from app.utils.storage import (
     save_upload_file,
     validate_file_extension,
@@ -194,7 +194,7 @@ def get_job(
 @router.get("/{job_id}/download/pdf")
 def download_pdf(
     job_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_from_token_or_query),
     db: Session = Depends(get_db),
 ):
     """Download the generated PDF for a completed job."""
@@ -234,7 +234,7 @@ def download_pdf(
 @router.get("/{job_id}/download/musicxml")
 def download_musicxml(
     job_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_from_token_or_query),
     db: Session = Depends(get_db),
 ):
     """Download the generated MusicXML for a completed job."""

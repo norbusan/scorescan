@@ -41,33 +41,37 @@ class PDFService:
             os.makedirs(os.path.dirname(abs_output), exist_ok=True)
 
             logger.info(f"Converting {musicxml_path} to PDF")
+            logger.info(f"Input: {abs_input}")
+            logger.info(f"Output: {abs_output}")
 
-            # Run MuseScore in batch mode
-            # MuseScore 4 command line: musescore -o output.pdf input.musicxml
+            # Run MuseScore with xvfb-run for headless operation
+            # Using the extracted AppImage (no FUSE needed)
+            cmd = [
+                "xvfb-run",
+                "-a",  # Auto-select display
+                self.musescore_path,
+                "-o",
+                abs_output,
+                abs_input,
+            ]
+
+            logger.info(f"Running command: {' '.join(cmd)}")
+
             result = subprocess.run(
-                [
-                    self.musescore_path,
-                    "--appimage-extract-and-run",  # For AppImage
-                    "-o",
-                    abs_output,
-                    abs_input,
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minute timeout
-                env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},  # Headless mode
+                env={
+                    **os.environ,
+                    "QT_QPA_PLATFORM": "offscreen",
+                    "HOME": "/tmp",  # MuseScore needs a writable HOME
+                },
             )
 
-            # MuseScore may return non-zero but still produce output
-            if not os.path.exists(abs_output):
-                # Try alternative command without appimage flag
-                result = subprocess.run(
-                    [self.musescore_path, "-o", abs_output, abs_input],
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
-                )
+            logger.info(f"MuseScore stdout: {result.stdout}")
+            if result.stderr:
+                logger.warning(f"MuseScore stderr: {result.stderr}")
 
             if os.path.exists(abs_output):
                 logger.info(f"PDF conversion complete: {output_rel_path}")
@@ -81,8 +85,8 @@ class PDFService:
             error_msg = "PDF conversion timed out (exceeded 2 minutes)"
             logger.error(error_msg)
             return False, None, error_msg
-        except FileNotFoundError:
-            error_msg = f"MuseScore not found at {self.musescore_path}"
+        except FileNotFoundError as e:
+            error_msg = f"MuseScore not found at {self.musescore_path}: {e}"
             logger.error(error_msg)
             return False, None, error_msg
         except Exception as e:
@@ -94,8 +98,13 @@ class PDFService:
         """Check if MuseScore is available and working."""
         try:
             result = subprocess.run(
-                [self.musescore_path, "--version"], capture_output=True, timeout=10
+                ["xvfb-run", "-a", self.musescore_path, "--version"],
+                capture_output=True,
+                timeout=30,
+                env={**os.environ, "HOME": "/tmp"},
             )
+            logger.info(f"MuseScore version check: {result.stdout}")
             return True  # MuseScore may return non-zero for --version
-        except Exception:
+        except Exception as e:
+            logger.warning(f"MuseScore availability check failed: {e}")
             return False

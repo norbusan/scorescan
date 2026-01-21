@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Music, ArrowRight } from 'lucide-react';
-import { MUSICAL_KEYS } from '../../types';
 
 interface TransposeOptionsProps {
   onOptionsChange: (options: TransposeSettings) => void;
@@ -24,22 +23,36 @@ export default function TransposeOptions({ onOptionsChange }: TransposeOptionsPr
   const [fromKey, setFromKey] = useState('C');
   const [toKey, setToKey] = useState('C');
 
+  const handleToggle = () => {
+    const newEnabled = !enabled;
+    setEnabled(newEnabled);
+    onOptionsChange({
+      enabled: newEnabled,
+      mode,
+      semitones,
+      fromKey,
+      toKey,
+    });
+  };
+
   const updateOptions = (updates: Partial<TransposeSettings>) => {
-    const newSettings = {
-      enabled: updates.enabled ?? enabled,
-      mode: updates.mode ?? mode,
-      semitones: updates.semitones ?? semitones,
-      fromKey: updates.fromKey ?? fromKey,
-      toKey: updates.toKey ?? toKey,
-    };
+    const newMode = updates.mode ?? mode;
+    const newSemitones = updates.semitones ?? semitones;
+    const newFromKey = updates.fromKey ?? fromKey;
+    const newToKey = updates.toKey ?? toKey;
     
-    if (updates.enabled !== undefined) setEnabled(updates.enabled);
     if (updates.mode !== undefined) setMode(updates.mode);
     if (updates.semitones !== undefined) setSemitones(updates.semitones);
     if (updates.fromKey !== undefined) setFromKey(updates.fromKey);
     if (updates.toKey !== undefined) setToKey(updates.toKey);
     
-    onOptionsChange(newSettings);
+    onOptionsChange({
+      enabled,
+      mode: newMode,
+      semitones: newSemitones,
+      fromKey: newFromKey,
+      toKey: newToKey,
+    });
   };
 
   const formatSemitones = (n: number) => {
@@ -48,28 +61,35 @@ export default function TransposeOptions({ onOptionsChange }: TransposeOptionsPr
   };
 
   return (
-    <div className="card p-6">
+    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
           <Music className="h-5 w-5 text-primary-600" />
           <h3 className="font-medium text-gray-900">Transpose</h3>
         </div>
-        <label className="relative inline-flex items-center cursor-pointer">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => updateOptions({ enabled: e.target.checked })}
-            className="sr-only peer"
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          onClick={handleToggle}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+            enabled ? 'bg-primary-600' : 'bg-gray-200'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              enabled ? 'translate-x-6' : 'translate-x-1'
+            }`}
           />
-          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
-        </label>
+        </button>
       </div>
 
       {enabled && (
         <div className="space-y-4">
           {/* Mode selector */}
-          <div className="flex rounded-lg bg-gray-100 p-1">
+          <div className="flex rounded-lg bg-gray-200 p-1">
             <button
+              type="button"
               onClick={() => updateOptions({ mode: 'semitones' })}
               className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
                 mode === 'semitones'
@@ -80,6 +100,7 @@ export default function TransposeOptions({ onOptionsChange }: TransposeOptionsPr
               By Semitones
             </button>
             <button
+              type="button"
               onClick={() => updateOptions({ mode: 'keys' })}
               className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
                 mode === 'keys'

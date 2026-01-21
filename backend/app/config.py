@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # External tools
     audiveris_path: str = "/opt/audiveris/bin/Audiveris"
-    musescore_path: str = "/opt/musescore.AppImage"
+    musescore_path: str = "/usr/local/bin/musescore"
 
     @property
     def cors_origins_list(self) -> List[str]:

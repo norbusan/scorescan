@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,7 @@ from app.utils.security import create_access_token, create_refresh_token, verify
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def get_current_user(
@@ -23,7 +24,57 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    if token is None:
+        raise credentials_exception
+
     payload = verify_token(token, "access")
+    if payload is None:
+        raise credentials_exception
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise credentials_exception
+
+    auth_service = AuthService(db)
+    user = auth_service.get_user_by_id(user_id)
+
+    if user is None:
+        raise credentials_exception
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="User account is disabled"
+        )
+
+    return user
+
+
+def get_current_user_from_token_or_query(
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
+    query_token: Optional[str] = Query(None, alias="token"),
+    db: Session = Depends(get_db),
+):
+    """
+    Dependency to get the current authenticated user from either:
+    - Authorization header (Bearer token)
+    - Query parameter (?token=...)
+
+    This is useful for file downloads where the browser can't easily set headers.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    # Try header token first, then query parameter
+    actual_token = token or query_token
+
+    if actual_token is None:
+        raise credentials_exception
+
+    payload = verify_token(actual_token, "access")
     if payload is None:
         raise credentials_exception
 

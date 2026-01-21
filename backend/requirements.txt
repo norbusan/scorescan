@@ -9,8 +9,8 @@ alembic==1.13.1
 
 # Authentication
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
+passlib==1.7.4
+bcrypt==4.0.1
 
 # Async task queue
 celery==5.3.6
@@ -22,6 +22,7 @@ music21==9.1.0
 # Utilities
 pydantic==2.5.3
 pydantic-settings==2.1.0
+email-validator==2.1.0
 python-dotenv==1.0.0
 Pillow==10.2.0
 aiofiles==23.2.1

@@ -1,14 +1,23 @@
 import subprocess
 import os
 import logging
+import zipfile
+import shutil
 from pathlib import Path
 from typing import Optional, Tuple
 
 from app.config import get_settings
-from app.utils.storage import get_file_path, get_musicxml_path
+from app.utils.storage import get_file_path
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+def get_musicxml_path_with_ext(user_id: str, job_id: str, ext: str) -> str:
+    """Generate the MusicXML output path for a job with specific extension."""
+    user_dir = os.path.join(settings.musicxml_path, user_id)
+    os.makedirs(user_dir, exist_ok=True)
+    return os.path.join("musicxml", user_id, f"{job_id}{ext}")
 
 
 class OMRService:
@@ -19,6 +28,57 @@ class OMRService:
 
     def __init__(self):
         self.audiveris_path = settings.audiveris_path
+
+    def _extract_mxl_to_musicxml(self, mxl_path: str, output_path: str) -> bool:
+        """
+        Extract a .mxl file (compressed MusicXML) to uncompressed .musicxml.
+
+        Args:
+            mxl_path: Path to the .mxl file
+            output_path: Path for the output .musicxml file
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with zipfile.ZipFile(mxl_path, "r") as zf:
+                # Look for the main musicxml file inside the archive
+                # Usually named something like 'score.xml' or in a subdirectory
+                xml_files = [
+                    f
+                    for f in zf.namelist()
+                    if f.endswith(".xml") and not f.startswith("META-INF")
+                ]
+
+                if not xml_files:
+                    logger.error(f"No XML file found in {mxl_path}")
+                    return False
+
+                # Prefer files that look like the main score
+                main_xml = None
+                for f in xml_files:
+                    if "container" not in f.lower():
+                        main_xml = f
+                        break
+
+                if not main_xml:
+                    main_xml = xml_files[0]
+
+                logger.info(f"Extracting {main_xml} from {mxl_path}")
+
+                # Extract the XML content
+                with zf.open(main_xml) as xml_file:
+                    with open(output_path, "wb") as out_file:
+                        out_file.write(xml_file.read())
+
+                return True
+
+        except zipfile.BadZipFile:
+            logger.error(f"{mxl_path} is not a valid ZIP/MXL file")
+            return False
+        except Exception as e:
+            logger.exception(f"Error extracting MXL file: {e}")
+            return False
 
     def process_image(
         self, input_path: str, user_id: str, job_id: str
@@ -37,10 +97,10 @@ class OMRService:
         try:
             # Get absolute paths
             abs_input_path = get_file_path(input_path)
-            output_rel_path = get_musicxml_path(user_id, job_id)
-            abs_output_dir = os.path.dirname(get_file_path(output_rel_path))
 
-            # Ensure output directory exists
+            # Create output directory
+            output_dir_rel = os.path.join("musicxml", user_id)
+            abs_output_dir = get_file_path(output_dir_rel)
             os.makedirs(abs_output_dir, exist_ok=True)
 
             logger.info(f"Starting OMR processing for {abs_input_path}")
@@ -76,22 +136,33 @@ class OMRService:
             # Find the output file (Audiveris names it based on input filename)
             input_stem = Path(abs_input_path).stem
             possible_outputs = [
-                os.path.join(abs_output_dir, f"{input_stem}.mxl"),
-                os.path.join(abs_output_dir, f"{input_stem}.musicxml"),
-                os.path.join(abs_output_dir, f"{input_stem}.xml"),
+                (os.path.join(abs_output_dir, f"{input_stem}.mxl"), ".mxl"),
+                (os.path.join(abs_output_dir, f"{input_stem}.musicxml"), ".musicxml"),
+                (os.path.join(abs_output_dir, f"{input_stem}.xml"), ".xml"),
             ]
 
             output_file = None
-            for path in possible_outputs:
+            output_ext = None
+            for path, ext in possible_outputs:
                 if os.path.exists(path):
                     output_file = path
+                    output_ext = ext
                     break
 
             if not output_file:
                 # Check for any musicxml-like file in the output dir
                 for f in os.listdir(abs_output_dir):
-                    if f.endswith((".mxl", ".musicxml", ".xml")):
+                    if f.endswith(".mxl"):
                         output_file = os.path.join(abs_output_dir, f)
+                        output_ext = ".mxl"
+                        break
+                    elif f.endswith(".musicxml"):
+                        output_file = os.path.join(abs_output_dir, f)
+                        output_ext = ".musicxml"
+                        break
+                    elif f.endswith(".xml") and not f.startswith("container"):
+                        output_file = os.path.join(abs_output_dir, f)
+                        output_ext = ".xml"
                         break
 
             if not output_file:
@@ -100,16 +171,31 @@ class OMRService:
                     error_msg += f"\nStderr: {result.stderr[:500]}"
                 return False, None, error_msg
 
-            # Rename to our standard naming convention
-            final_output = get_file_path(output_rel_path)
-            if output_file != final_output:
-                # If it's a .mxl (compressed), we might need to extract or just rename
-                import shutil
+            logger.info(f"Found output file: {output_file} with extension {output_ext}")
 
-                shutil.move(output_file, final_output)
+            # If it's a .mxl (compressed MusicXML), extract it to .musicxml
+            # This ensures music21 can parse it correctly
+            final_rel_path = get_musicxml_path_with_ext(user_id, job_id, ".musicxml")
+            final_abs_path = get_file_path(final_rel_path)
 
-            logger.info(f"OMR processing complete: {output_rel_path}")
-            return True, output_rel_path, None
+            if output_ext == ".mxl":
+                logger.info(f"Extracting compressed MXL to {final_abs_path}")
+                if not self._extract_mxl_to_musicxml(output_file, final_abs_path):
+                    # If extraction fails, try to use the file directly
+                    # (maybe music21 can handle it)
+                    final_rel_path = get_musicxml_path_with_ext(user_id, job_id, ".mxl")
+                    final_abs_path = get_file_path(final_rel_path)
+                    shutil.move(output_file, final_abs_path)
+                else:
+                    # Remove the original .mxl file after successful extraction
+                    os.remove(output_file)
+            else:
+                # Just move/rename the file
+                if output_file != final_abs_path:
+                    shutil.move(output_file, final_abs_path)
+
+            logger.info(f"OMR processing complete: {final_rel_path}")
+            return True, final_rel_path, None
 
         except subprocess.TimeoutExpired:
             error_msg = "OMR processing timed out (exceeded 5 minutes)"
