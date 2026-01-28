@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    allowedHosts: ['scorescan.preining.info', 'localhost'],
     proxy: {
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
