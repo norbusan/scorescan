@@ -11,6 +11,7 @@ services:
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - STORAGE_PATH=/app/storage
       - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+      - DEBUG=${DEBUG:-false}
     volumes:
       - ./backend/storage:/app/storage
     depends_on:
@@ -27,6 +28,7 @@ services:
       - REDIS_URL=redis://valkey:6379/0
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - STORAGE_PATH=/app/storage
+      - DEBUG=${DEBUG:-false}
     volumes:
       - ./backend/storage:/app/storage
     depends_on:
