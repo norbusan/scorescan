@@ -6,7 +6,7 @@ WORKDIR /app
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python and system dependencies
+# Install Python and system dependencies (including OpenCV dependencies)
 RUN apt-get update && apt-get install -y \
     python3.12 \
     python3.12-venv \
@@ -33,6 +33,9 @@ RUN apt-get update && apt-get install -y \
     libpango-1.0-0 \
     libcairo2 \
     xvfb \
+    libglib2.0-0 \
+    libsm6 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Audiveris 5.9.0 from .deb package (includes JRE)

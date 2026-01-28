@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 from app.config import get_settings
 from app.utils.storage import get_file_path
+from app.services.image_preprocessing import preprocess_for_omr
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -26,8 +27,9 @@ class OMRService:
     Converts music score images to MusicXML format.
     """
 
-    def __init__(self):
+    def __init__(self, enable_preprocessing: bool = True):
         self.audiveris_path = settings.audiveris_path
+        self.enable_preprocessing = enable_preprocessing
 
     def _extract_mxl_to_musicxml(self, mxl_path: str, output_path: str) -> bool:
         """
@@ -105,8 +107,31 @@ class OMRService:
 
             logger.info(f"Starting OMR processing for {abs_input_path}")
 
+            # Preprocess the image if enabled
+            processed_input_path = abs_input_path
+            if self.enable_preprocessing:
+                logger.info("Preprocessing image for improved OMR accuracy")
+
+                # Create a temporary file for the preprocessed image
+                input_path_obj = Path(abs_input_path)
+                preprocessed_filename = (
+                    f"{input_path_obj.stem}_preprocessed{input_path_obj.suffix}"
+                )
+                preprocessed_path = os.path.join(abs_output_dir, preprocessed_filename)
+
+                success, error = preprocess_for_omr(abs_input_path, preprocessed_path)
+
+                if success:
+                    logger.info(f"Image preprocessing successful: {preprocessed_path}")
+                    processed_input_path = preprocessed_path
+                else:
+                    logger.warning(f"Image preprocessing failed: {error}")
+                    logger.warning("Falling back to original image")
+                    # Continue with original image if preprocessing fails
+
             # Run Audiveris in batch mode with xvfb-run for headless operation
             # Audiveris 5.9 CLI: -batch -export -output <dir> <input_file>
+            # Use the preprocessed image if available
             cmd = [
                 "xvfb-run",
                 "-a",  # Auto-select display number
@@ -115,7 +140,7 @@ class OMRService:
                 "-export",
                 "-output",
                 abs_output_dir,
-                abs_input_path,
+                processed_input_path,
             ]
 
             logger.info(f"Running command: {' '.join(cmd)}")
@@ -134,7 +159,8 @@ class OMRService:
 
             # Audiveris may return non-zero even on partial success, check for output files
             # Find the output file (Audiveris names it based on input filename)
-            input_stem = Path(abs_input_path).stem
+            # Use the processed input path stem (which may be the preprocessed file)
+            input_stem = Path(processed_input_path).stem
             possible_outputs = [
                 (os.path.join(abs_output_dir, f"{input_stem}.mxl"), ".mxl"),
                 (os.path.join(abs_output_dir, f"{input_stem}.musicxml"), ".musicxml"),
@@ -195,6 +221,17 @@ class OMRService:
                     shutil.move(output_file, final_abs_path)
 
             logger.info(f"OMR processing complete: {final_rel_path}")
+
+            # Clean up preprocessed file if it was created
+            if processed_input_path != abs_input_path and os.path.exists(
+                processed_input_path
+            ):
+                try:
+                    os.remove(processed_input_path)
+                    logger.info(f"Cleaned up preprocessed file: {processed_input_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up preprocessed file: {e}")
+
             return True, final_rel_path, None
 
         except subprocess.TimeoutExpired:
