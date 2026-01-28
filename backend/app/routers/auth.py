@@ -5,7 +5,14 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.auth import UserCreate, UserLogin, Token, RefreshToken
+from app.schemas.auth import (
+    UserCreate,
+    UserLogin,
+    Token,
+    RefreshToken,
+    PasswordResetRequest,
+    PasswordResetConfirm,
+)
 from app.schemas.user import UserResponse
 from app.services.auth import AuthService
 from app.utils.security import create_access_token, create_refresh_token, verify_token
@@ -360,3 +367,149 @@ def logout():
     # JWT tokens are stateless, so we just return success
     # Client is responsible for discarding tokens
     return {"message": "Successfully logged out"}
+
+
+@router.post("/password-reset/request")
+def request_password_reset(
+    reset_request: PasswordResetRequest, db: Session = Depends(get_db)
+):
+    """
+    Request a password reset. Sends an email with reset link.
+    Always returns success even if email not found (security best practice).
+    """
+    from datetime import datetime, timedelta
+    from app.models.password_reset import PasswordResetToken
+    from app.services.email import email_service
+
+    if settings.debug:
+        logger.debug(
+            f"[AUTH DEBUG] /password-reset/request: Request for email: {reset_request.email}"
+        )
+
+    auth_service = AuthService(db)
+    user = auth_service.get_user_by_email(reset_request.email)
+
+    if user:
+        if settings.debug:
+            logger.debug(
+                f"[AUTH DEBUG] /password-reset/request: User found, creating token"
+            )
+
+        # Create password reset token
+        token = PasswordResetToken.generate_token()
+        expires_at = datetime.utcnow() + timedelta(
+            hours=settings.password_reset_token_expire_hours
+        )
+
+        reset_token = PasswordResetToken(
+            user_id=user.id, token=token, expires_at=expires_at
+        )
+
+        db.add(reset_token)
+        db.commit()
+
+        if settings.debug:
+            logger.debug(
+                f"[AUTH DEBUG] /password-reset/request: Token created, sending email"
+            )
+
+        # Send email
+        email_service.send_password_reset_email(user.email, token)
+
+        if settings.debug:
+            logger.debug(
+                f"[AUTH DEBUG] /password-reset/request: Email sent to {user.email}"
+            )
+    else:
+        if settings.debug:
+            logger.debug(
+                f"[AUTH DEBUG] /password-reset/request: User not found (returning success anyway)"
+            )
+
+    # Always return success to prevent email enumeration
+    return {
+        "message": "If the email exists, a password reset link has been sent",
+        "success": True,
+    }
+
+
+@router.post("/password-reset/confirm")
+def confirm_password_reset(
+    reset_confirm: PasswordResetConfirm, db: Session = Depends(get_db)
+):
+    """
+    Confirm password reset with token and set new password.
+    """
+    from datetime import datetime
+    from app.models.password_reset import PasswordResetToken
+    from passlib.context import CryptContext
+
+    if settings.debug:
+        logger.debug(f"[AUTH DEBUG] /password-reset/confirm: Validating token")
+
+    # Find the token
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token == reset_confirm.token)
+        .first()
+    )
+
+    if not reset_token:
+        if settings.debug:
+            logger.debug(f"[AUTH DEBUG] /password-reset/confirm: Token not found")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    # Check if token is expired
+    if reset_token.is_expired():
+        if settings.debug:
+            logger.debug(f"[AUTH DEBUG] /password-reset/confirm: Token expired")
+        db.delete(reset_token)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has expired",
+        )
+
+    # Check if token is already used
+    if reset_token.is_used():
+        if settings.debug:
+            logger.debug(f"[AUTH DEBUG] /password-reset/confirm: Token already used")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has already been used",
+        )
+
+    if settings.debug:
+        logger.debug(
+            f"[AUTH DEBUG] /password-reset/confirm: Token valid, updating password"
+        )
+
+    # Get the user
+    auth_service = AuthService(db)
+    user = auth_service.get_user_by_id(reset_token.user_id)
+
+    if not user:
+        if settings.debug:
+            logger.debug(f"[AUTH DEBUG] /password-reset/confirm: User not found")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="User not found"
+        )
+
+    # Update password
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    user.hashed_password = pwd_context.hash(reset_confirm.new_password)
+
+    # Mark token as used
+    reset_token.mark_as_used()
+
+    db.commit()
+
+    if settings.debug:
+        logger.debug(
+            f"[AUTH DEBUG] /password-reset/confirm: Password updated successfully for {user.email}"
+        )
+
+    return {"message": "Password has been reset successfully", "success": True}

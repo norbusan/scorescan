@@ -20,6 +20,16 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    password_reset_token_expire_hours: int = 24
+
+    # Email Configuration
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "ScoreScan"
+    frontend_url: str = "http://localhost:5173"
 
     # Storage
     storage_path: str = "./storage"
