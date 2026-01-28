@@ -235,6 +235,19 @@ These preprocessing steps improve recognition accuracy by **50-80%** for mobile 
 
 For more details, see [IMAGE_PREPROCESSING.md](backend/IMAGE_PREPROCESSING.md).
 
+## Running Behind Apache/Nginx Proxy
+
+If you're running ScoreScan behind Apache or nginx reverse proxy, see [APACHE_PROXY_SETUP.md](APACHE_PROXY_SETUP.md) for configuration instructions.
+
+**Quick fix for proxy setup:**
+```bash
+# In .env file, leave VITE_API_URL empty for relative URLs
+VITE_API_URL=
+
+# Add your domain to CORS
+CORS_ORIGINS=https://yourdomain.com,http://localhost:5173
+```
+
 ## Troubleshooting
 
 ### OMR Processing Fails

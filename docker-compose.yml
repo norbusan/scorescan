@@ -10,7 +10,7 @@ services:
       - REDIS_URL=redis://valkey:6379/0
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - STORAGE_PATH=/app/storage
-      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
       - DEBUG=${DEBUG:-false}
     volumes:
       - ./backend/storage:/app/storage
@@ -51,7 +51,9 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      # Leave empty for relative URLs (recommended for proxy setups)
+      # Set to full URL for development: http://localhost:8000
+      - VITE_API_URL=${VITE_API_URL:-}
     depends_on:
       - backend
     networks:
