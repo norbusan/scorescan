@@ -118,3 +118,39 @@ class AuthService:
             logger.debug(f"[AUTH DEBUG] Email {email} registered: {is_registered}")
 
         return is_registered
+
+    def change_password(
+        self, user: User, current_password: str, new_password: str
+    ) -> bool:
+        """
+        Change a user's password.
+
+        Args:
+            user: The user whose password to change
+            current_password: The user's current password
+            new_password: The new password to set
+
+        Returns:
+            True if password changed successfully, False if current password is incorrect
+        """
+        if settings.debug:
+            logger.debug(f"[AUTH DEBUG] Changing password for user: {user.email}")
+
+        # Verify current password
+        if not verify_password(current_password, user.hashed_password):
+            if settings.debug:
+                logger.debug(
+                    f"[AUTH DEBUG] Password change failed: incorrect current password"
+                )
+            return False
+
+        # Update password
+        user.hashed_password = get_password_hash(new_password)
+        self.db.commit()
+
+        if settings.debug:
+            logger.debug(
+                f"[AUTH DEBUG] Password changed successfully for user: {user.email}"
+            )
+
+        return True

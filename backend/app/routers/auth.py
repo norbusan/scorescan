@@ -12,6 +12,7 @@ from app.schemas.auth import (
     RefreshToken,
     PasswordResetRequest,
     PasswordResetConfirm,
+    PasswordChange,
 )
 from app.schemas.user import UserResponse
 from app.services.auth import AuthService
@@ -513,3 +514,45 @@ def confirm_password_reset(
         )
 
     return {"message": "Password has been reset successfully", "success": True}
+
+
+@router.post("/change-password")
+def change_password(
+    password_data: PasswordChange,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Change the current user's password.
+    Requires authentication and current password verification.
+    """
+    if settings.debug:
+        logger.debug(
+            f"[AUTH DEBUG] /change-password: Request from user: {current_user.email}"
+        )
+
+    auth_service = AuthService(db)
+
+    # Attempt to change password
+    success = auth_service.change_password(
+        user=current_user,
+        current_password=password_data.current_password,
+        new_password=password_data.new_password,
+    )
+
+    if not success:
+        if settings.debug:
+            logger.debug(
+                f"[AUTH DEBUG] /change-password: Failed - incorrect current password"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if settings.debug:
+        logger.debug(
+            f"[AUTH DEBUG] /change-password: Password changed successfully for {current_user.email}"
+        )
+
+    return {"message": "Password changed successfully", "success": True}
