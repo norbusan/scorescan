@@ -1,5 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { AuthTokens, User, Job, JobListResponse, RegisterData, APIError } from '../types';
+import { AuthTokens, User, Job, JobListResponse, RegisterData, APIError, UserListResponse } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -169,6 +169,35 @@ export const jobsApi = {
   downloadMusicXml: (jobId: string): string => {
     const tokens = getStoredTokens();
     return `${API_BASE_URL}/api/jobs/${jobId}/download/musicxml?token=${tokens?.access_token || ''}`;
+  },
+};
+
+// Admin API (requires superuser)
+export const adminApi = {
+  listAllUsers: async (): Promise<UserListResponse> => {
+    const response = await api.get<UserListResponse>('/admin/users');
+    return response.data;
+  },
+  
+  listPendingUsers: async (): Promise<User[]> => {
+    const response = await api.get<User[]>('/admin/users/pending');
+    return response.data;
+  },
+  
+  approveUser: async (userId: string): Promise<void> => {
+    await api.post(`/admin/users/${userId}/approve`);
+  },
+  
+  rejectUser: async (userId: string): Promise<void> => {
+    await api.post(`/admin/users/${userId}/reject`);
+  },
+  
+  makeSuperuser: async (userId: string): Promise<void> => {
+    await api.post(`/admin/users/${userId}/make-superuser`);
+  },
+  
+  revokeSuperuser: async (userId: string): Promise<void> => {
+    await api.delete(`/admin/users/${userId}/superuser`);
   },
 };
 

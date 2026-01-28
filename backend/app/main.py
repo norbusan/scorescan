@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.config import get_settings
 from app.database import init_db
-from app.routers import auth_router, jobs_router, users_router
+from app.routers import auth_router, jobs_router, users_router, admin_router
 
 settings = get_settings()
 
@@ -38,6 +38,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 
 @app.get("/")

@@ -7,6 +7,8 @@ class UserResponse(BaseModel):
     id: str
     email: EmailStr
     is_active: bool
+    is_approved: bool
+    is_superuser: bool
     created_at: datetime
     updated_at: datetime
 

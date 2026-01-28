@@ -7,9 +7,12 @@ A web application for converting music score images to MusicXML and PDF with opt
 - **Upload music scores**: Support for PNG, JPG, TIFF, and PDF files
 - **Camera capture**: Take photos directly on mobile devices
 - **Optical Music Recognition**: Convert images to MusicXML using Audiveris
+- **Image preprocessing**: Automatic enhancement for better OMR accuracy
 - **Transposition**: Transpose by semitones (-12 to +12) or by key
 - **PDF generation**: Professional quality PDF output via MuseScore
 - **User authentication**: JWT-based auth with email/password
+- **User approval system**: Superuser approval required for new registrations
+- **Admin panel**: Manage users and approve new accounts
 - **Job history**: Track and re-download past conversions
 
 ## Tech Stack
@@ -62,6 +65,22 @@ A web application for converting music score images to MusicXML and PDF with opt
    - Frontend: http://localhost:5173
    - Backend API: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
+
+5. **Set up user approval system** (First-time setup)
+   ```bash
+   # Run database migration
+   cd backend
+   python3 migrate_add_user_approval.py
+   
+   # Create first superuser account
+   python3 create_superuser.py
+   
+   # Restart services
+   cd ..
+   docker-compose restart
+   ```
+   
+   See [USER_APPROVAL_SYSTEM.md](USER_APPROVAL_SYSTEM.md) and [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for details.
 
 ## Local Development Setup
 
@@ -193,6 +212,7 @@ ScoreScan/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `DEBUG` | Enable debug logging | `false` |
 | `SECRET_KEY` | JWT signing key | (required) |
 | `DATABASE_URL` | SQLite connection URL | `sqlite:///./storage/scorescan.db` |
 | `REDIS_URL` | Valkey/Redis connection URL | `redis://localhost:6379/0` |
@@ -231,6 +251,30 @@ For more details, see [IMAGE_PREPROCESSING.md](backend/IMAGE_PREPROCESSING.md).
 ### Authentication Issues
 - Ensure `SECRET_KEY` is set and consistent across restarts
 - Check that cookies/localStorage are not blocked
+- For detailed debugging, enable `DEBUG=true` in `.env` and check logs
+- See [DEBUG_LOGGING.md](DEBUG_LOGGING.md) for troubleshooting authentication
+
+### User Approval Issues
+- New users require superuser approval before they can login
+- Check admin panel for pending approvals
+- See [USER_APPROVAL_SYSTEM.md](USER_APPROVAL_SYSTEM.md) for details
+
+## Debug Mode
+
+Enable detailed logging for troubleshooting:
+
+```bash
+# In .env file
+DEBUG=true
+
+# Restart services
+docker-compose restart
+
+# View debug logs
+docker-compose logs -f api | grep "AUTH DEBUG"
+```
+
+See [DEBUG_LOGGING.md](DEBUG_LOGGING.md) for complete debug guide.
 
 ## License
 

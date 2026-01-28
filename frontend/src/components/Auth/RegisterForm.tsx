@@ -32,7 +32,7 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
 
     try {
       await register(email, password);
-      toast.success('Account created successfully!');
+      toast.success('Account created! Please wait for administrator approval before logging in.');
       onSuccess?.();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };

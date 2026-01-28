@@ -3,6 +3,8 @@ export interface User {
   id: string;
   email: string;
   is_active: boolean;
+  is_approved: boolean;
+  is_superuser: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +62,15 @@ export interface TransposeOptions {
 // API Error
 export interface APIError {
   detail: string;
+}
+
+// Admin types
+export interface UserListResponse {
+  users: User[];
+  total: number;
+  pending: number;
+  approved: number;
+  superusers: number;
 }
 
 // Keys for transposition
