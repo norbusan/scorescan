@@ -61,6 +61,27 @@ docker-compose restart backend
 6. Set new password
 7. Login with new password
 
+### Local/Unauthenticated SMTP Relay
+
+For local SMTP servers (Postfix, Sendmail) or Docker deployments with host mail relays:
+
+```bash
+# In .env
+SMTP_HOST=host.docker.internal  # or localhost if not in Docker
+SMTP_PORT=25
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=noreply@yourdomain.com
+SMTP_FROM_NAME=ScoreScan
+FRONTEND_URL=http://localhost:5173
+```
+
+The system automatically uses unauthenticated mode when both username and password are empty. This is suitable for:
+- Local Postfix/Sendmail relay on Docker host
+- Internal mail servers
+- Mail catcher utilities for development
+- SMTP servers that don't require authentication
+
 ## Development Mode (No Email)
 
 If you don't configure SMTP, the reset link will be logged to the console:

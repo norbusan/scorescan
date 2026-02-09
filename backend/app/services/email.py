@@ -16,18 +16,41 @@ class EmailService:
         self.settings = get_settings()
 
     def _create_smtp_connection(self) -> Optional[smtplib.SMTP]:
-        """Create and return an SMTP connection"""
+        """Create and return an SMTP connection
+
+        Supports both authenticated and unauthenticated SMTP modes.
+        """
         try:
-            if not self.settings.smtp_username or not self.settings.smtp_password:
-                logger.warning(
-                    "SMTP credentials not configured. Email will not be sent."
+            # Validate credentials are both present or both absent
+            has_username = bool(self.settings.smtp_username)
+            has_password = bool(self.settings.smtp_password)
+
+            if has_username != has_password:
+                logger.error(
+                    "SMTP configuration error: Both username and password must be "
+                    "provided together, or both must be empty for unauthenticated mode."
                 )
                 return None
 
+            requires_auth = has_username and has_password
+
+            logger.info(
+                f"Connecting to SMTP server: {self.settings.smtp_host}:{self.settings.smtp_port}"
+            )
+
+            # Create connection
             smtp = smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port)
             smtp.starttls()
-            smtp.login(self.settings.smtp_username, self.settings.smtp_password)
+
+            # Conditional authentication
+            if requires_auth:
+                logger.info("Authenticating with provided credentials")
+                smtp.login(self.settings.smtp_username, self.settings.smtp_password)
+            else:
+                logger.info("Using unauthenticated SMTP mode")
+
             return smtp
+
         except Exception as e:
             logger.error(f"Failed to create SMTP connection: {str(e)}")
             return None
