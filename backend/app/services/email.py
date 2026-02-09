@@ -25,6 +25,8 @@ class EmailService:
             has_username = bool(self.settings.smtp_username)
             has_password = bool(self.settings.smtp_password)
 
+            logger.debug(f"SMTP username present: {has_username}, password present: {has_password}")
+
             if has_username != has_password:
                 logger.error(
                     "SMTP configuration error: Both username and password must be "
@@ -33,6 +35,8 @@ class EmailService:
                 return None
 
             requires_auth = has_username and has_password
+
+            logger.debug(f"SMTP requires auth: {requires_auth}")
 
             logger.info(
                 f"Connecting to SMTP server: {self.settings.smtp_host}:{self.settings.smtp_port}"
@@ -45,9 +49,10 @@ class EmailService:
             # Conditional authentication
             if requires_auth:
                 logger.info("Authenticating with provided credentials")
+                logger.debug(f"Using username: {self.settings.smtp_username}")
                 smtp.login(self.settings.smtp_username, self.settings.smtp_password)
             else:
-                logger.info("Using unauthenticated SMTP mode")
+                logger.info("Using unauthenticated SMTP mode - skipping login()")
 
             return smtp
 
