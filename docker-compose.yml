@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    env_file: .env
     environment:
       - DATABASE_URL=sqlite:///./storage/scorescan.db
       - REDIS_URL=redis://valkey:6379/0
@@ -23,6 +24,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.worker
+    env_file: .env
     environment:
       - DATABASE_URL=sqlite:///./storage/scorescan.db
       - REDIS_URL=redis://valkey:6379/0
@@ -50,6 +52,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5173:5173"
+    env_file: .env
     environment:
       # Leave empty for relative URLs (recommended for proxy setups)
       # Set to full URL for development: http://localhost:8000
