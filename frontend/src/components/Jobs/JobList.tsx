@@ -1,4 +1,3 @@
-import React from 'react';
 import { FileText, Download, Trash2, Music, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Job } from '../../types';
 import JobStatusBadge, { JobProgress } from './JobStatus';
@@ -152,7 +151,7 @@ export default function JobList({
   totalPages,
   onPageChange,
   onDelete,
-  onRefresh,
+  onRefresh: _onRefresh,
 }: JobListProps) {
   if (jobs.length === 0) {
     return (

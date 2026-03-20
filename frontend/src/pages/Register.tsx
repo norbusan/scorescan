@@ -1,4 +1,3 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Music } from 'lucide-react';
 import RegisterForm from '../components/Auth/RegisterForm';

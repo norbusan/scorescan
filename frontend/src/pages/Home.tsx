@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { Upload, Music, FileText, Zap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
