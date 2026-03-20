@@ -27,9 +27,9 @@ function formatDate(dateString: string): string {
 function JobCard({ job, onDelete }: { job: Job; onDelete: () => void }) {
   const handleDownloadPdf = async () => {
     try {
-      // Create a hidden link and trigger download
+      const url = await jobsApi.downloadPdf(job.id);
       const link = document.createElement('a');
-      link.href = jobsApi.downloadPdf(job.id);
+      link.href = url;
       link.download = `${job.original_filename.replace(/\.[^/.]+$/, '')}_processed.pdf`;
       document.body.appendChild(link);
       link.click();
@@ -41,8 +41,9 @@ function JobCard({ job, onDelete }: { job: Job; onDelete: () => void }) {
 
   const handleDownloadMusicXml = async () => {
     try {
+      const url = await jobsApi.downloadMusicXml(job.id);
       const link = document.createElement('a');
-      link.href = jobsApi.downloadMusicXml(job.id);
+      link.href = url;
       link.download = `${job.original_filename.replace(/\.[^/.]+$/, '')}.musicxml`;
       document.body.appendChild(link);
       link.click();

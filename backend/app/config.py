@@ -1,7 +1,16 @@
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from functools import lru_cache
 from typing import List
 import os
+
+_WEAK_SECRETS = {
+    "your-secret-key-change-in-production",
+    "secret",
+    "changeme",
+    "password",
+    "",
+}
 
 
 class Settings(BaseSettings):
@@ -16,11 +25,20 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # JWT Authentication
-    secret_key: str = "your-secret-key-change-in-production"
+    secret_key: str  # REQUIRED — no default; app will refuse to start without it
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
-    password_reset_token_expire_hours: int = 24
+    password_reset_token_expire_hours: int = 1
+
+    @model_validator(mode="after")
+    def _reject_weak_secret(self) -> "Settings":
+        if self.secret_key in _WEAK_SECRETS or len(self.secret_key) < 16:
+            raise ValueError(
+                "SECRET_KEY is missing, too short (min 16 chars), or a well-known "
+                "placeholder. Set a strong, random value in your .env file."
+            )
+        return self
 
     # Email Configuration
     smtp_host: str = "smtp.gmail.com"

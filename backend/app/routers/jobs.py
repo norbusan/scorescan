@@ -1,27 +1,39 @@
 import os
+import re
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 import uuid
-import json
 
 from app.database import get_db
 from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.schemas.job import JobResponse, JobListResponse, TransposeOptions
-from app.routers.auth import get_current_user, get_current_user_from_token_or_query
+from app.routers.auth import get_current_user
 from app.utils.storage import (
     save_upload_file,
     validate_file_extension,
     get_file_path,
     delete_file,
 )
+from app.utils.token_blacklist import validate_download_token
 from app.config import get_settings
 from app.tasks.process_score import process_score_task
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 settings = get_settings()
+
+# Regex to sanitize filenames: keep only safe characters
+_SAFE_FILENAME_RE = re.compile(r'[^a-zA-Z0-9._\- ]')
+
+
+def _sanitize_filename(name: str) -> str:
+    """Strip unsafe characters from a filename."""
+    sanitized = _SAFE_FILENAME_RE.sub("_", name)
+    # Collapse multiple underscores/spaces
+    sanitized = re.sub(r'[_ ]{2,}', '_', sanitized).strip("_. ")
+    return sanitized or "download"
 
 
 def job_to_response(job: Job) -> JobResponse:
@@ -40,6 +52,27 @@ def job_to_response(job: Job) -> JobResponse:
         has_pdf=job.pdf_path is not None,
         has_musicxml=job.musicxml_path is not None,
     )
+
+
+def _get_user_from_download_token(
+    job_id: str,
+    token: str = Query(..., alias="token"),
+    db: Session = Depends(get_db),
+) -> User:
+    """Validate a short-lived download token and return the owning user."""
+    user_id = validate_download_token(token, job_id)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired download token",
+        )
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+    return user
 
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
@@ -101,6 +134,9 @@ async def create_job(
     # Create job record
     job_id = str(uuid.uuid4())
 
+    # Sanitize original filename for storage in DB
+    safe_filename = _sanitize_filename(file.filename)
+
     # Save uploaded file
     upload_path = await save_upload_file(file, current_user.id, job_id)
 
@@ -109,7 +145,7 @@ async def create_job(
         id=job_id,
         user_id=current_user.id,
         status=JobStatus.PENDING.value,
-        original_filename=file.filename,
+        original_filename=safe_filename,
         upload_path=upload_path,
         transpose_semitones=transpose_semitones,
         transpose_from_key=transpose_from_key,
@@ -194,7 +230,7 @@ def get_job(
 @router.get("/{job_id}/download/pdf")
 def download_pdf(
     job_id: str,
-    current_user: User = Depends(get_current_user_from_token_or_query),
+    current_user: User = Depends(_get_user_from_download_token),
     db: Session = Depends(get_db),
 ):
     """Download the generated PDF for a completed job."""
@@ -222,9 +258,8 @@ def download_pdf(
             status_code=status.HTTP_404_NOT_FOUND, detail="PDF file not found"
         )
 
-    # Generate download filename
     original_name = os.path.splitext(job.original_filename)[0]
-    download_name = f"{original_name}_processed.pdf"
+    download_name = f"{_sanitize_filename(original_name)}_processed.pdf"
 
     return FileResponse(
         path=file_path, filename=download_name, media_type="application/pdf"
@@ -234,7 +269,7 @@ def download_pdf(
 @router.get("/{job_id}/download/musicxml")
 def download_musicxml(
     job_id: str,
-    current_user: User = Depends(get_current_user_from_token_or_query),
+    current_user: User = Depends(_get_user_from_download_token),
     db: Session = Depends(get_db),
 ):
     """Download the generated MusicXML for a completed job."""
@@ -257,9 +292,8 @@ def download_musicxml(
             status_code=status.HTTP_404_NOT_FOUND, detail="MusicXML file not found"
         )
 
-    # Generate download filename
     original_name = os.path.splitext(job.original_filename)[0]
-    download_name = f"{original_name}.musicxml"
+    download_name = f"{_sanitize_filename(original_name)}.musicxml"
 
     return FileResponse(
         path=file_path,

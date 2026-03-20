@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -21,7 +22,7 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token."""
+    """Create a JWT access token with a unique JTI."""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -30,7 +31,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             minutes=settings.access_token_expire_minutes
         )
 
-    to_encode.update({"exp": expire, "type": "access"})
+    from app.utils.token_blacklist import get_password_generation
+
+    to_encode.update({
+        "exp": expire,
+        "type": "access",
+        "jti": str(uuid.uuid4()),
+        "pwd_gen": get_password_generation(data.get("sub", "")),
+    })
     encoded_jwt = jwt.encode(
         to_encode, settings.secret_key, algorithm=settings.algorithm
     )
@@ -38,14 +46,21 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT refresh token."""
+    """Create a JWT refresh token with a unique JTI."""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
 
-    to_encode.update({"exp": expire, "type": "refresh"})
+    from app.utils.token_blacklist import get_password_generation
+
+    to_encode.update({
+        "exp": expire,
+        "type": "refresh",
+        "jti": str(uuid.uuid4()),
+        "pwd_gen": get_password_generation(data.get("sub", "")),
+    })
     encoded_jwt = jwt.encode(
         to_encode, settings.secret_key, algorithm=settings.algorithm
     )
@@ -53,13 +68,30 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
 
 
 def verify_token(token: str, token_type: str = "access") -> Optional[dict]:
-    """Verify a JWT token and return its payload."""
+    """Verify a JWT token, checking type, blacklist, and password generation."""
     try:
         payload = jwt.decode(
             token, settings.secret_key, algorithms=[settings.algorithm]
         )
         if payload.get("type") != token_type:
             return None
+
+        # Check blacklist
+        jti = payload.get("jti")
+        if jti:
+            from app.utils.token_blacklist import is_token_blacklisted
+            if is_token_blacklisted(jti):
+                return None
+
+        # Check password generation — tokens issued before a password change are invalid
+        user_id = payload.get("sub")
+        token_pwd_gen = payload.get("pwd_gen")
+        if user_id is not None and token_pwd_gen is not None:
+            from app.utils.token_blacklist import get_password_generation
+            current_gen = get_password_generation(user_id)
+            if current_gen > token_pwd_gen:
+                return None
+
         return payload
     except JWTError:
         return None

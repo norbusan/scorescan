@@ -71,8 +71,12 @@ RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create storage directories
-RUN mkdir -p storage/uploads storage/musicxml storage/pdf
+# Create storage directories and non-root user
+RUN useradd -m -r appuser && \
+    mkdir -p storage/uploads storage/musicxml storage/pdf && \
+    chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 8000
 

@@ -161,14 +161,21 @@ export const jobsApi = {
     await api.delete(`/jobs/${jobId}`);
   },
   
-  downloadPdf: (jobId: string): string => {
-    const tokens = getStoredTokens();
-    return `${API_BASE_URL}/api/jobs/${jobId}/download/pdf?token=${tokens?.access_token || ''}`;
+  getDownloadToken: async (jobId: string): Promise<string> => {
+    const response = await api.post<{ download_token: string; expires_in: number }>(
+      `/auth/download-token/${jobId}`
+    );
+    return response.data.download_token;
   },
-  
-  downloadMusicXml: (jobId: string): string => {
-    const tokens = getStoredTokens();
-    return `${API_BASE_URL}/api/jobs/${jobId}/download/musicxml?token=${tokens?.access_token || ''}`;
+
+  downloadPdf: async (jobId: string): Promise<string> => {
+    const token = await jobsApi.getDownloadToken(jobId);
+    return `${API_BASE_URL}/api/jobs/${jobId}/download/pdf?token=${token}`;
+  },
+
+  downloadMusicXml: async (jobId: string): Promise<string> => {
+    const token = await jobsApi.getDownloadToken(jobId);
+    return `${API_BASE_URL}/api/jobs/${jobId}/download/musicxml?token=${token}`;
   },
 };
 

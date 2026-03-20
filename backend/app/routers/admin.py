@@ -169,6 +169,12 @@ def update_user_approval(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
+    if user.is_superuser and user.id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot modify approval status of another superuser",
+        )
+
     user.is_approved = approval_data.approved
     db.commit()
     db.refresh(user)
