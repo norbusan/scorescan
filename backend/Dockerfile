@@ -38,8 +38,8 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Audiveris 5.9.0 from .deb package (includes JRE)
-RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.9.0/Audiveris-5.9.0-ubuntu24.04-x86_64.deb -O /tmp/audiveris.deb \
+# Install Audiveris 5.10.0 from .deb package (includes JRE)
+RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.10.0/Audiveris-5.10.0-ubuntu24.04-x86_64.deb -O /tmp/audiveris.deb \
     && apt-get update \
     && mkdir -p /usr/share/desktop-directories/ \
     && apt-get install -y /tmp/audiveris.deb \

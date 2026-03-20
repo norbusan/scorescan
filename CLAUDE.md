@@ -27,7 +27,7 @@
 
 - **Multi-format Score Conversion**: Upload PNG, JPG, TIFF, or PDF files
 - **Mobile-First Design**: Camera capture for direct photo upload from mobile devices
-- **Advanced OMR**: Audiveris 5.9 with automatic image preprocessing
+- **Advanced OMR**: Audiveris 5.10 with automatic image preprocessing
 - **Music Transposition**: Transpose by semitones (-12 to +12) or between keys
 - **Professional Output**: High-quality PDF generation via MuseScore 4.4
 - **User Management**: JWT-based authentication with admin approval workflow
@@ -81,7 +81,7 @@
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Async Task Processing                                │   │
 │  │  1. Image Preprocessing (OpenCV)                      │   │
-│  │  2. OMR Processing (Audiveris 5.9)                    │   │
+│  │  2. OMR Processing (Audiveris 5.10)                    │   │
 │  │  3. Transposition (music21)                           │   │
 │  │  4. PDF Generation (MuseScore 4.4)                    │   │
 │  └──────────────────────────────────────────────────────┘   │
@@ -195,7 +195,7 @@ ImagePreprocessor(
 
 ### 3. Optical Music Recognition (OMR)
 
-**Engine**: Audiveris 5.9
+**Engine**: Audiveris 5.10
 
 **Process:**
 1. Receives preprocessed image

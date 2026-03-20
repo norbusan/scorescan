@@ -23,7 +23,7 @@ def get_musicxml_path_with_ext(user_id: str, job_id: str, ext: str) -> str:
 
 class OMRService:
     """
-    Optical Music Recognition service using Audiveris 5.9.
+    Optical Music Recognition service using Audiveris 5.10.
     Converts music score images to MusicXML format.
     """
 
@@ -130,7 +130,7 @@ class OMRService:
                     # Continue with original image if preprocessing fails
 
             # Run Audiveris in batch mode with xvfb-run for headless operation
-            # Audiveris 5.9 CLI: -batch -export -output <dir> <input_file>
+            # Audiveris 5.10 CLI: -batch -export -output <dir> <input_file>
             # Use the preprocessed image if available
             cmd = [
                 "xvfb-run",
