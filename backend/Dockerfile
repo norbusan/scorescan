@@ -47,7 +47,7 @@ RUN wget -q https://github.com/Audiveris/audiveris/releases/download/5.10.0/Audi
     && rm -rf /var/lib/apt/lists/*
 
 # Install MuseScore 4 - Extract AppImage instead of running it (FUSE doesn't work in Docker)
-RUN wget -q https://github.com/musescore/MuseScore/releases/download/v4.4.4/MuseScore-Studio-4.4.4.243461245-x86_64.AppImage -O /tmp/musescore.AppImage \
+RUN wget -q https://github.com/musescore/MuseScore/releases/download/v4.6.5/MuseScore-Studio-4.6.5.253511702-x86_64.AppImage -O /tmp/musescore.AppImage \
     && chmod +x /tmp/musescore.AppImage \
     && cd /opt \
     && /tmp/musescore.AppImage --appimage-extract \

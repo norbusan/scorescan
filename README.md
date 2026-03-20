@@ -23,7 +23,7 @@ A web application for converting music score images to MusicXML and PDF with opt
 - **Celery** + **Valkey** for async task processing
 - **Audiveris 5.10** for OMR (Optical Music Recognition)
 - **music21** for transposition
-- **MuseScore 4.4** for PDF generation
+- **MuseScore 4.6** for PDF generation
 
 ### Frontend
 - **React 18** with TypeScript
@@ -40,7 +40,7 @@ A web application for converting music score images to MusicXML and PDF with opt
   - Node.js 18+
   - Java 21+ (bundled with Audiveris 5.10 .deb package)
   - Audiveris 5.10
-  - MuseScore 4.4
+  - MuseScore 4.6
 
 ## Quick Start with Docker
 
