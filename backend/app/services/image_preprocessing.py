@@ -41,7 +41,7 @@ class ImagePreprocessor:
         enable_deskew: bool = True,
         enable_perspective_correction: bool = True,
         enable_denoising: bool = True,
-        enable_binarization: bool = True,
+        enable_binarization: bool = False,
     ):
         """
         Initialize the preprocessor with configuration options.
@@ -89,17 +89,17 @@ class ImagePreprocessor:
             else:
                 gray = image
 
-            # Step 2: Denoise (optional)
-            if self.enable_denoising:
-                logger.info("Applying denoising")
-                gray = self._denoise(gray)
-
-            # Step 3: Deskew (rotation correction)
+            # Step 2: Deskew first on sharp edges (Hough works better before denoising blurs staff lines)
             if self.enable_deskew:
                 logger.info("Detecting and correcting skew")
                 gray, angle = self._deskew(gray)
                 if angle != 0:
                     logger.info(f"Corrected skew angle: {angle:.2f} degrees")
+
+            # Step 3: Denoise (after deskew to preserve edge signal for Hough)
+            if self.enable_denoising:
+                logger.info("Applying denoising")
+                gray = self._denoise(gray)
 
             # Step 4: Perspective correction (if enabled)
             if self.enable_perspective_correction:
@@ -425,21 +425,17 @@ def preprocess_for_omr(
     """
     Convenience function to preprocess an image with default settings.
 
-    Args:
-        input_path: Path to input image
-        output_path: Path to save preprocessed image
-        target_dpi: Target DPI for output (default: 300)
-        enable_all: Enable all preprocessing steps (default: True)
-
-    Returns:
-        Tuple of (success, error_message)
+    Note: binarization is intentionally left off by default. Audiveris applies its
+    own music-aware binarization (Sauvola) and feeding it a pre-binarized image
+    typically hurts recognition. Pass a preprocessor with enable_binarization=True
+    only for already-clean printed scans.
     """
     preprocessor = ImagePreprocessor(
         target_dpi=target_dpi,
         enable_deskew=enable_all,
         enable_perspective_correction=enable_all,
         enable_denoising=enable_all,
-        enable_binarization=enable_all,
+        enable_binarization=False,
     )
 
     return preprocessor.preprocess(input_path, output_path)

@@ -1,10 +1,13 @@
 import subprocess
 import os
 import logging
+import tempfile
 import zipfile
 import shutil
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
+
+from PIL import Image
 
 from app.config import get_settings
 from app.utils.storage import get_file_path
@@ -82,6 +85,74 @@ class OMRService:
             logger.exception(f"Error extracting MXL file: {e}")
             return False
 
+    def _render_pdf_pages(self, pdf_path: str, out_dir: str, dpi: int = 300) -> List[str]:
+        """Render each PDF page to a PNG at the given DPI. Returns list of PNG paths."""
+        import pypdfium2 as pdfium
+
+        scale = dpi / 72.0
+        pdf = pdfium.PdfDocument(pdf_path)
+        try:
+            paths: List[str] = []
+            for i, page in enumerate(pdf):
+                bitmap = page.render(scale=scale, rotation=0)
+                pil = bitmap.to_pil()
+                page_path = os.path.join(out_dir, f"page_{i + 1:03d}.png")
+                pil.save(page_path, "PNG")
+                paths.append(page_path)
+            return paths
+        finally:
+            pdf.close()
+
+    def _combine_pages_to_pdf(self, image_paths: List[str], out_pdf: str) -> None:
+        """Combine preprocessed page images back into a single multi-page PDF for Audiveris."""
+        images = [Image.open(p) for p in image_paths]
+        try:
+            rgb_images = [im.convert("RGB") for im in images]
+            rgb_images[0].save(
+                out_pdf,
+                "PDF",
+                resolution=300.0,
+                save_all=True,
+                append_images=rgb_images[1:],
+            )
+        finally:
+            for im in images:
+                im.close()
+
+    def _preprocess_pdf(self, pdf_path: str, work_dir: str) -> Optional[str]:
+        """Render PDF pages, preprocess each, and reassemble into a multi-page PDF.
+
+        Returns the path to the preprocessed PDF, or None on failure (caller should
+        fall back to the original PDF).
+        """
+        try:
+            pages_dir = os.path.join(work_dir, "pages")
+            os.makedirs(pages_dir, exist_ok=True)
+
+            page_paths = self._render_pdf_pages(pdf_path, pages_dir, dpi=300)
+            if not page_paths:
+                logger.warning(f"PDF {pdf_path} produced no pages")
+                return None
+
+            logger.info(f"Rendered {len(page_paths)} PDF page(s) for preprocessing")
+
+            processed_paths: List[str] = []
+            for p in page_paths:
+                processed = p.replace(".png", "_pp.png")
+                success, err = preprocess_for_omr(p, processed)
+                if success:
+                    processed_paths.append(processed)
+                else:
+                    logger.warning(f"Preprocess failed for {p}: {err}; using raw page")
+                    processed_paths.append(p)
+
+            out_pdf = os.path.join(work_dir, "preprocessed.pdf")
+            self._combine_pages_to_pdf(processed_paths, out_pdf)
+            return out_pdf
+        except Exception as e:
+            logger.exception(f"PDF preprocessing failed: {e}")
+            return None
+
     def process_image(
         self, input_path: str, user_id: str, job_id: str
     ) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -109,25 +180,43 @@ class OMRService:
 
             # Preprocess the image if enabled
             processed_input_path = abs_input_path
+            is_pdf = abs_input_path.lower().endswith(".pdf")
+            pdf_work_dir: Optional[str] = None
             if self.enable_preprocessing:
-                logger.info("Preprocessing image for improved OMR accuracy")
-
-                # Create a temporary file for the preprocessed image
                 input_path_obj = Path(abs_input_path)
-                preprocessed_filename = (
-                    f"{input_path_obj.stem}_preprocessed{input_path_obj.suffix}"
-                )
-                preprocessed_path = os.path.join(abs_output_dir, preprocessed_filename)
 
-                success, error = preprocess_for_omr(abs_input_path, preprocessed_path)
-
-                if success:
-                    logger.info(f"Image preprocessing successful: {preprocessed_path}")
-                    processed_input_path = preprocessed_path
+                if is_pdf:
+                    logger.info("Preprocessing PDF by rendering pages at 300 DPI")
+                    pdf_work_dir = tempfile.mkdtemp(
+                        prefix=f"scorescan_pdf_{job_id}_", dir=abs_output_dir
+                    )
+                    pp_pdf = self._preprocess_pdf(abs_input_path, pdf_work_dir)
+                    if pp_pdf:
+                        processed_input_path = pp_pdf
+                        logger.info(f"PDF preprocessing successful: {pp_pdf}")
+                    else:
+                        logger.warning("PDF preprocessing failed; using original PDF")
                 else:
-                    logger.warning(f"Image preprocessing failed: {error}")
-                    logger.warning("Falling back to original image")
-                    # Continue with original image if preprocessing fails
+                    logger.info("Preprocessing image for improved OMR accuracy")
+                    preprocessed_filename = (
+                        f"{input_path_obj.stem}_preprocessed{input_path_obj.suffix}"
+                    )
+                    preprocessed_path = os.path.join(
+                        abs_output_dir, preprocessed_filename
+                    )
+
+                    success, error = preprocess_for_omr(
+                        abs_input_path, preprocessed_path
+                    )
+
+                    if success:
+                        logger.info(
+                            f"Image preprocessing successful: {preprocessed_path}"
+                        )
+                        processed_input_path = preprocessed_path
+                    else:
+                        logger.warning(f"Image preprocessing failed: {error}")
+                        logger.warning("Falling back to original image")
 
             # Run Audiveris in batch mode with xvfb-run for headless operation
             # Audiveris 5.10 CLI: -batch -export -output <dir> <input_file>
@@ -222,8 +311,14 @@ class OMRService:
 
             logger.info(f"OMR processing complete: {final_rel_path}")
 
-            # Clean up preprocessed file if it was created
-            if processed_input_path != abs_input_path and os.path.exists(
+            # Clean up preprocessed artifacts
+            if pdf_work_dir and os.path.isdir(pdf_work_dir):
+                try:
+                    shutil.rmtree(pdf_work_dir)
+                    logger.info(f"Cleaned up PDF work dir: {pdf_work_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up PDF work dir: {e}")
+            elif processed_input_path != abs_input_path and os.path.exists(
                 processed_input_path
             ):
                 try:
