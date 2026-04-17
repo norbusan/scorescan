@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from typing import Optional
@@ -38,6 +39,14 @@ def _sanitize_filename(name: str) -> str:
 
 def job_to_response(job: Job) -> JobResponse:
     """Convert Job model to JobResponse schema."""
+    warnings: list[str] = []
+    if job.quality_warnings:
+        try:
+            decoded = json.loads(job.quality_warnings)
+            if isinstance(decoded, list):
+                warnings = [str(w) for w in decoded]
+        except (ValueError, TypeError):
+            warnings = [job.quality_warnings]
     return JobResponse(
         id=job.id,
         status=job.status,
@@ -47,6 +56,7 @@ def job_to_response(job: Job) -> JobResponse:
         transpose_from_key=job.transpose_from_key,
         transpose_to_key=job.transpose_to_key,
         error_message=job.error_message,
+        quality_warnings=warnings,
         created_at=job.created_at,
         completed_at=job.completed_at,
         has_pdf=job.pdf_path is not None,

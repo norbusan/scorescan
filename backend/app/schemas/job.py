@@ -32,6 +32,7 @@ class JobResponse(BaseModel):
     transpose_from_key: Optional[str] = None
     transpose_to_key: Optional[str] = None
     error_message: Optional[str] = None
+    quality_warnings: List[str] = Field(default_factory=list)
     created_at: datetime
     completed_at: Optional[datetime] = None
     has_pdf: bool = False

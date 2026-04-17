@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime
 from celery import current_task
@@ -19,6 +20,7 @@ def update_job_status(
     error_message: str = None,
     musicxml_path: str = None,
     pdf_path: str = None,
+    quality_warnings: list = None,
 ):
     """Update job status in database."""
     db = SessionLocal()
@@ -33,6 +35,10 @@ def update_job_status(
                 job.musicxml_path = musicxml_path
             if pdf_path:
                 job.pdf_path = pdf_path
+            if quality_warnings is not None:
+                job.quality_warnings = (
+                    json.dumps(quality_warnings) if quality_warnings else None
+                )
             if status in [JobStatus.COMPLETED, JobStatus.FAILED]:
                 job.completed_at = datetime.utcnow()
             db.commit()
@@ -77,7 +83,7 @@ def process_score_task(
         update_job_status(job_id, JobStatus.PROCESSING, progress=10)
 
         omr_service = OMRService()
-        success, musicxml_path, error = omr_service.process_image(
+        success, musicxml_path, error, quality_warnings = omr_service.process_image(
             upload_path, user_id, job_id
         )
 
@@ -87,11 +93,16 @@ def process_score_task(
                 job_id,
                 JobStatus.FAILED,
                 error_message=f"Score recognition failed: {error}",
+                quality_warnings=quality_warnings,
             )
             return {"success": False, "error": error}
 
         update_job_status(
-            job_id, JobStatus.PROCESSING, progress=50, musicxml_path=musicxml_path
+            job_id,
+            JobStatus.PROCESSING,
+            progress=50,
+            musicxml_path=musicxml_path,
+            quality_warnings=quality_warnings,
         )
 
         # Step 2: Transpose if requested (50-70%)

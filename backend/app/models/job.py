@@ -38,6 +38,11 @@ class Job(Base):
     # Error handling
     error_message = Column(Text, nullable=True)
 
+    # OMR quality warnings (JSON-encoded list of strings). Non-fatal — the
+    # job can still complete successfully while warnings are present. The
+    # frontend surfaces these to help users judge whether to rescan.
+    quality_warnings = Column(Text, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)

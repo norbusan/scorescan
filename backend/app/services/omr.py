@@ -1,11 +1,13 @@
 import subprocess
 import os
 import logging
+import re
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 import shutil
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
@@ -15,6 +17,15 @@ from app.services.image_preprocessing import preprocess_for_omr
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+# Audiveris warning/error patterns we surface to the user. Audiveris logs look
+# like "12:34:56 WARN  [sheet#1] No staff found in system X" — we match on the
+# severity token and the bracketed context when present.
+_AUDIVERIS_WARN_RE = re.compile(r"\b(WARN|ERROR|SEVERE)\b(.*)", re.IGNORECASE)
+_MUSICXML_NS = {
+    "": "",  # default empty namespace
+}
 
 
 def get_musicxml_path_with_ext(user_id: str, job_id: str, ext: str) -> str:
@@ -30,9 +41,46 @@ class OMRService:
     Converts music score images to MusicXML format.
     """
 
-    def __init__(self, enable_preprocessing: bool = True):
+    def __init__(
+        self,
+        enable_preprocessing: bool = True,
+        enable_ocr: bool = False,
+        interline_range: Optional[Tuple[int, int]] = None,
+        audiveris_options: Optional[Dict[str, str]] = None,
+        audiveris_steps: Optional[List[str]] = None,
+    ):
+        """Create an OMR service.
+
+        Args:
+            enable_preprocessing: Run our preprocessing pipeline first.
+            enable_ocr: Enable Audiveris's Tesseract OCR for lyrics/text.
+            interline_range: Override Audiveris's staff-size search, as
+                (min, max) interline distance in pixels. Useful for unusually
+                small or large staves.
+            audiveris_options: Extra `-option key=value` pairs passed raw.
+                These win over any of the convenience kwargs above.
+            audiveris_steps: Pipeline steps to run (e.g. ["PAGE"]). Defaults
+                to the full pipeline.
+        """
         self.audiveris_path = settings.audiveris_path
         self.enable_preprocessing = enable_preprocessing
+        self.enable_ocr = enable_ocr
+        self.interline_range = interline_range
+        self.audiveris_options = dict(audiveris_options or {})
+        self.audiveris_steps = list(audiveris_steps or [])
+
+    def _build_audiveris_options(self) -> Dict[str, str]:
+        """Merge convenience kwargs into the final Audiveris -option map."""
+        options: Dict[str, str] = {}
+        if self.enable_ocr:
+            options["org.audiveris.omr.text.OCR.useOCR"] = "true"
+        if self.interline_range is not None:
+            lo, hi = self.interline_range
+            options["org.audiveris.omr.sheet.Scale.minInterline"] = str(lo)
+            options["org.audiveris.omr.sheet.Scale.maxInterline"] = str(hi)
+        # User-provided options override the convenience ones
+        options.update(self.audiveris_options)
+        return options
 
     def _extract_mxl_to_musicxml(self, mxl_path: str, output_path: str) -> bool:
         """
@@ -155,17 +203,14 @@ class OMRService:
 
     def process_image(
         self, input_path: str, user_id: str, job_id: str
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
+    ) -> Tuple[bool, Optional[str], Optional[str], List[str]]:
         """
         Process an image file with Audiveris to generate MusicXML.
 
-        Args:
-            input_path: Relative path to the input image file
-            user_id: User ID for organizing output
-            job_id: Job ID for naming the output file
-
         Returns:
-            Tuple of (success, output_path, error_message)
+            Tuple of (success, output_path, error_message, quality_warnings).
+            quality_warnings is a possibly-empty list of human-readable strings
+            derived from Audiveris output and the resulting MusicXML.
         """
         try:
             # Get absolute paths
@@ -219,9 +264,8 @@ class OMRService:
                         logger.warning("Falling back to original image")
 
             # Run Audiveris in batch mode with xvfb-run for headless operation
-            # Audiveris 5.10 CLI: -batch -export -output <dir> <input_file>
-            # Use the preprocessed image if available
-            cmd = [
+            # Audiveris 5.10 CLI: -batch -export -output <dir> [-option ...] [-step ...] <input>
+            cmd: List[str] = [
                 "xvfb-run",
                 "-a",  # Auto-select display number
                 self.audiveris_path,
@@ -229,8 +273,12 @@ class OMRService:
                 "-export",
                 "-output",
                 abs_output_dir,
-                processed_input_path,
             ]
+            for key, value in self._build_audiveris_options().items():
+                cmd.extend(["-option", f"{key}={value}"])
+            for step in self.audiveris_steps:
+                cmd.extend(["-step", step])
+            cmd.append(processed_input_path)
 
             logger.info(f"Running command: {' '.join(cmd)}")
 
@@ -280,11 +328,18 @@ class OMRService:
                         output_ext = ".xml"
                         break
 
+            # Collect quality signals from Audiveris logs; useful even on
+            # success because Audiveris often returns partial results with
+            # warnings that affect usability of the output.
+            warnings = self._collect_audiveris_warnings(
+                result.stdout, result.stderr
+            )
+
             if not output_file:
                 error_msg = f"No MusicXML output file found. Audiveris return code: {result.returncode}"
                 if result.stderr:
                     error_msg += f"\nStderr: {result.stderr[:500]}"
-                return False, None, error_msg
+                return False, None, error_msg, warnings
 
             logger.info(f"Found output file: {output_file} with extension {output_ext}")
 
@@ -311,6 +366,13 @@ class OMRService:
 
             logger.info(f"OMR processing complete: {final_rel_path}")
 
+            # Score-level quality checks on the MusicXML
+            warnings.extend(self._inspect_musicxml_quality(final_abs_path))
+            if warnings:
+                logger.warning(
+                    f"OMR produced {len(warnings)} quality warning(s) for job {job_id}"
+                )
+
             # Clean up preprocessed artifacts
             if pdf_work_dir and os.path.isdir(pdf_work_dir):
                 try:
@@ -327,20 +389,93 @@ class OMRService:
                 except Exception as e:
                     logger.warning(f"Failed to clean up preprocessed file: {e}")
 
-            return True, final_rel_path, None
+            return True, final_rel_path, None, warnings
 
         except subprocess.TimeoutExpired:
             error_msg = "OMR processing timed out (exceeded 5 minutes)"
             logger.error(error_msg)
-            return False, None, error_msg
+            return False, None, error_msg, []
         except FileNotFoundError as e:
             error_msg = f"Audiveris not found at {self.audiveris_path}: {e}"
             logger.error(error_msg)
-            return False, None, error_msg
+            return False, None, error_msg, []
         except Exception as e:
             error_msg = f"OMR processing error: {str(e)}"
             logger.exception(error_msg)
-            return False, None, error_msg
+            return False, None, error_msg, []
+
+    def _collect_audiveris_warnings(self, stdout: str, stderr: str) -> List[str]:
+        """Extract a capped list of WARN/ERROR lines from Audiveris output."""
+        warnings: List[str] = []
+        seen: set[str] = set()
+        max_warnings = 20
+
+        # Phrases that are noisy but harmless — don't surface to end users
+        ignore_substrings = (
+            "JavaFX",  # Headless startup noise
+            "display :0",
+            "Could not load library",  # Often benign
+        )
+
+        for stream in (stdout or "", stderr or ""):
+            for raw_line in stream.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if any(snippet in line for snippet in ignore_substrings):
+                    continue
+                if not _AUDIVERIS_WARN_RE.search(line):
+                    continue
+                # Deduplicate — Audiveris often repeats the same issue per page
+                key = line[:200]
+                if key in seen:
+                    continue
+                seen.add(key)
+                warnings.append(line[:300])
+                if len(warnings) >= max_warnings:
+                    warnings.append(
+                        f"(truncated; {max_warnings}+ Audiveris warnings emitted)"
+                    )
+                    return warnings
+        return warnings
+
+    def _inspect_musicxml_quality(self, musicxml_path: str) -> List[str]:
+        """Derive score-level quality signals from the final MusicXML.
+
+        These are the cheap checks that catch the common failure modes: empty
+        output, a single-measure fragment, or no notes recognized at all.
+        """
+        notes: List[str] = []
+        try:
+            tree = ET.parse(musicxml_path)
+        except (ET.ParseError, OSError) as e:
+            notes.append(f"MusicXML could not be parsed: {e}")
+            return notes
+
+        root = tree.getroot()
+        # MusicXML uses no namespace by default; handle either shape.
+        def local(tag: str) -> str:
+            return tag.split("}", 1)[1] if "}" in tag else tag
+
+        measures = [el for el in root.iter() if local(el.tag) == "measure"]
+        note_elems = [el for el in root.iter() if local(el.tag) == "note"]
+        parts = [el for el in root.iter() if local(el.tag) == "part"]
+
+        if not parts:
+            notes.append("No parts/instruments detected in the score.")
+        if not measures:
+            notes.append("No measures detected — OMR likely failed.")
+        elif len(measures) < 2:
+            notes.append(
+                f"Only {len(measures)} measure detected — the scan may be "
+                "incomplete or unreadable."
+            )
+        if not note_elems:
+            notes.append(
+                "No notes detected — try a higher-resolution scan or better lighting."
+            )
+
+        return notes
 
     def is_available(self) -> bool:
         """Check if Audiveris is available and working."""

@@ -158,52 +158,75 @@ class ImagePreprocessor:
 
     def _deskew(self, image: np.ndarray) -> Tuple[np.ndarray, float]:
         """
-        Detect and correct image skew (rotation).
+        Detect and correct image skew using the horizontal projection-profile method.
 
-        Uses Hough Line Transform to detect dominant line angles,
-        which correspond to staff lines in music scores.
-
-        Args:
-            image: Grayscale image
-
-        Returns:
-            Tuple of (deskewed image, rotation angle in degrees)
+        For each candidate angle, rotate a downsampled binary version of the image
+        and compute the variance of the row-wise pixel sum. At the correct angle,
+        staff lines align with rows and produce sharp horizontal bands — i.e. the
+        projection profile has the highest variance. This is more robust than
+        Hough-on-Canny, which mixes in text, barlines, and slurs.
         """
-        # Detect edges
-        edges = cv2.Canny(image, 50, 150, apertureSize=3)
+        height, width = image.shape
 
-        # Detect lines using Hough Transform
-        lines = cv2.HoughLines(edges, 1, np.pi / 180, threshold=200)
+        # Work on a thumbnail for speed; deskew angle is scale-invariant
+        max_dim = 1000
+        scale = min(1.0, max_dim / max(height, width))
+        if scale < 1.0:
+            thumb = cv2.resize(
+                image,
+                (int(width * scale), int(height * scale)),
+                interpolation=cv2.INTER_AREA,
+            )
+        else:
+            thumb = image
 
-        if lines is None or len(lines) == 0:
-            logger.info("No lines detected for deskewing")
+        # Binarize so dark ink = 1, paper = 0 (Otsu handles varied lighting)
+        _, binary = cv2.threshold(
+            thumb, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+
+        def profile_variance(rotated: np.ndarray) -> float:
+            projection = rotated.sum(axis=1, dtype=np.int64)
+            return float(projection.var())
+
+        # Coarse search: -5° to +5° in 0.5° steps
+        coarse = np.arange(-5.0, 5.01, 0.5)
+        best_angle = 0.0
+        best_score = profile_variance(binary)
+        h, w = binary.shape
+        center = (w / 2, h / 2)
+        for angle in coarse:
+            if angle == 0.0:
+                continue
+            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+            rotated = cv2.warpAffine(
+                binary, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=0
+            )
+            score = profile_variance(rotated)
+            if score > best_score:
+                best_score = score
+                best_angle = angle
+
+        # Fine search around the coarse winner in 0.1° steps
+        fine = np.arange(best_angle - 0.5, best_angle + 0.51, 0.1)
+        for angle in fine:
+            M = cv2.getRotationMatrix2D(center, float(angle), 1.0)
+            rotated = cv2.warpAffine(
+                binary, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=0
+            )
+            score = profile_variance(rotated)
+            if score > best_score:
+                best_score = score
+                best_angle = float(angle)
+
+        # Only correct if the angle is significant
+        if abs(best_angle) < 0.3:
             return image, 0.0
 
-        # Calculate angles of detected lines
-        angles = []
-        for line in lines:
-            rho, theta = line[0]
-            # Convert to degrees and normalize to [-90, 90]
-            angle = np.degrees(theta) - 90
-            # Filter out near-vertical lines (staff lines are horizontal)
-            if -45 < angle < 45:
-                angles.append(angle)
-
-        if not angles:
-            logger.info("No horizontal lines detected")
-            return image, 0.0
-
-        # Use median angle to avoid outliers
-        median_angle = np.median(angles)
-
-        # Only correct if angle is significant (> 0.5 degrees)
-        if abs(median_angle) < 0.5:
-            return image, 0.0
-
-        # Rotate image to correct skew
+        # Rotate the full-resolution image
         height, width = image.shape
         center = (width // 2, height // 2)
-        rotation_matrix = cv2.getRotationMatrix2D(center, median_angle, 1.0)
+        rotation_matrix = cv2.getRotationMatrix2D(center, best_angle, 1.0)
 
         # Calculate new image size to avoid cropping
         cos = np.abs(rotation_matrix[0, 0])
@@ -225,7 +248,7 @@ class ImagePreprocessor:
             borderValue=255,
         )
 
-        return rotated, median_angle
+        return rotated, best_angle
 
     def _correct_perspective(self, image: np.ndarray) -> Optional[np.ndarray]:
         """
@@ -269,11 +292,41 @@ class ImagePreprocessor:
             logger.info("Could not detect document boundary for perspective correction")
             return None
 
+        # Gate: the candidate quad must cover most of the image. Without this,
+        # the detector frequently latches onto a staff bounding box or a single
+        # system and destructively warps the score.
+        image_area = float(image.shape[0] * image.shape[1])
+        contour_area = float(cv2.contourArea(document_contour))
+        coverage = contour_area / image_area if image_area > 0 else 0.0
+        if coverage < 0.5:
+            logger.info(
+                f"Perspective correction skipped: candidate quad covers "
+                f"only {coverage:.1%} of the image (need >=50%)"
+            )
+            return None
+
         # Reshape the contour to 4 points
         points = document_contour.reshape(4, 2)
 
         # Order points: top-left, top-right, bottom-right, bottom-left
         rect = self._order_points(points)
+
+        # Reject extreme aspect ratios (likely latched onto a staff, not a page)
+        w_top = np.linalg.norm(rect[1] - rect[0])
+        w_bot = np.linalg.norm(rect[2] - rect[3])
+        h_left = np.linalg.norm(rect[3] - rect[0])
+        h_right = np.linalg.norm(rect[2] - rect[1])
+        avg_w = (w_top + w_bot) / 2
+        avg_h = (h_left + h_right) / 2
+        if avg_h <= 0 or avg_w <= 0:
+            return None
+        aspect = max(avg_w / avg_h, avg_h / avg_w)
+        if aspect > 3.0:
+            logger.info(
+                f"Perspective correction skipped: aspect ratio {aspect:.2f} "
+                f"is implausible for a score page"
+            )
+            return None
 
         # Calculate the width and height of the new image
         (tl, tr, br, bl) = rect
