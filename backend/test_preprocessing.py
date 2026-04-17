@@ -100,7 +100,7 @@ def main():
         # Test imports first
         if not test_imports():
             print("\n❌ Import tests failed. Please install required dependencies:")
-            print("   pip install opencv-python-headless numpy Pillow")
+            print("   uv sync  (from the backend/ directory)")
             return 1
 
         # Test basic functionality

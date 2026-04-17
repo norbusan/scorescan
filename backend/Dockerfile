@@ -10,7 +10,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     python3.12 \
     python3.12-venv \
-    python3-pip \
     wget \
     libfreetype6 \
     fontconfig \
@@ -64,9 +63,17 @@ ENV QT_QPA_PLATFORM=offscreen
 RUN ln -sf /usr/bin/python3.12 /usr/bin/python3 && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
-# Copy requirements first for caching
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+# Install uv for dependency management
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /usr/local/bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:$PATH"
+
+# Install dependencies using the lockfile for reproducibility
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project
 
 # Copy application code
 COPY . .

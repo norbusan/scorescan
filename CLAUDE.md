@@ -1136,9 +1136,8 @@ docker-compose exec backend python3 -c \
 **Backend:**
 ```bash
 cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv sync                      # creates .venv and installs locked deps
+source .venv/bin/activate
 
 # Start Valkey
 docker run -d -p 6379:6379 valkey/valkey:8-alpine
@@ -1149,6 +1148,15 @@ uvicorn app.main:app --reload
 # Start worker (separate terminal)
 celery -A app.tasks.celery_app worker --loglevel=info
 ```
+
+Dependency management uses [uv](https://docs.astral.sh/uv/). Version specs in
+`pyproject.toml` are intentionally loose; exact versions are pinned in
+`uv.lock`. Common commands:
+
+- `uv add <pkg>` — add a dependency
+- `uv remove <pkg>` — remove a dependency
+- `uv lock --upgrade` — bump all packages to latest compatible versions
+- `uv sync --locked` — reproduce the locked environment (used in Docker builds)
 
 **Frontend:**
 ```bash

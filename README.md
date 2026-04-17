@@ -86,35 +86,33 @@ A web application for converting music score images to MusicXML and PDF with opt
 
 ### Backend
 
-1. **Create a virtual environment**
+1. **Install dependencies with uv**
    ```bash
    cd backend
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   uv sync            # creates .venv and installs locked deps
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+   Install [uv](https://docs.astral.sh/uv/) first if you don't have it:
+   `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-3. **Set up environment**
+2. **Set up environment**
    ```bash
    cp .env.example .env
    # Edit .env with your local settings
    ```
 
-4. **Start Valkey** (required for Celery)
+3. **Start Valkey** (required for Celery)
    ```bash
    docker run -d -p 6379:6379 valkey/valkey:8-alpine
    ```
 
-5. **Start the backend server**
+4. **Start the backend server**
    ```bash
    uvicorn app.main:app --reload
    ```
 
-6. **Start the Celery worker** (in a separate terminal)
+5. **Start the Celery worker** (in a separate terminal)
    ```bash
    celery -A app.tasks.celery_app worker --loglevel=info
    ```
@@ -168,7 +166,8 @@ ScoreScan/
 ├── backend/
 │   ├── Dockerfile
 │   ├── Dockerfile.worker
-│   ├── requirements.txt
+│   ├── pyproject.toml
+│   ├── uv.lock
 │   ├── .env.example
 │   ├── app/
 │   │   ├── main.py              # FastAPI app entry
