@@ -38,6 +38,7 @@ export interface Job {
   transpose_from_key: string | null;
   transpose_to_key: string | null;
   error_message: string | null;
+  quality_warnings: string[];
   created_at: string;
   completed_at: string | null;
   has_pdf: boolean;

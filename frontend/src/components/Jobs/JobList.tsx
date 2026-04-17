@@ -1,4 +1,4 @@
-import { FileText, Download, Trash2, Music, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileText, Download, Trash2, Music, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { Job } from '../../types';
 import JobStatusBadge, { JobProgress } from './JobStatus';
 import { jobsApi } from '../../api/client';
@@ -21,6 +21,43 @@ function formatDate(dateString: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function QualityWarnings({ warnings }: { warnings: string[] }) {
+  // A handful of warnings are informational rather than "something is wrong" —
+  // e.g. the engine-fallback note. Surface them as amber, not red.
+  const tone: 'info' | 'warn' = warnings.some((w) =>
+    /^(no\b|only\s+\d+\s+measure)/i.test(w)
+  )
+    ? 'warn'
+    : 'info';
+
+  const palette =
+    tone === 'warn'
+      ? 'bg-amber-50 border-amber-200 text-amber-800'
+      : 'bg-blue-50 border-blue-200 text-blue-800';
+
+  const iconColor = tone === 'warn' ? 'text-amber-500' : 'text-blue-500';
+
+  return (
+    <details className={`mt-2 rounded-md border p-3 text-sm ${palette}`}>
+      <summary className="flex cursor-pointer items-center gap-2 font-medium">
+        <AlertTriangle className={`h-4 w-4 shrink-0 ${iconColor}`} />
+        <span>
+          {warnings.length === 1
+            ? '1 recognition note'
+            : `${warnings.length} recognition notes`}
+        </span>
+      </summary>
+      <ul className="mt-2 ml-6 list-disc space-y-1">
+        {warnings.map((w, i) => (
+          <li key={i} className="break-words">
+            {w}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
 function JobCard({ job, onDelete }: { job: Job; onDelete: () => void }) {
@@ -107,6 +144,9 @@ function JobCard({ job, onDelete }: { job: Job; onDelete: () => void }) {
             <JobProgress job={job} />
             {job.error_message && (
               <p className="text-sm text-red-600 mt-2">{job.error_message}</p>
+            )}
+            {job.quality_warnings && job.quality_warnings.length > 0 && (
+              <QualityWarnings warnings={job.quality_warnings} />
             )}
           </div>
         </div>
