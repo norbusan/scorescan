@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     audiveris_path: str = "/opt/audiveris/bin/Audiveris"
     musescore_path: str = "/usr/local/bin/musescore"
 
+    # Oemer (deep-learning OMR fallback). Requires the `oemer` pip package
+    # and ~500MB of model weights; not installed in the default image. When
+    # enabled, jobs that produce no notes/measures under Audiveris are retried
+    # with oemer and the better result is kept.
+    oemer_enabled: bool = True
+    oemer_path: str = "oemer"  # expected on PATH
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]

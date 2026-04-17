@@ -41,6 +41,13 @@ dependencies = [
 dev = [
     "httpx>=0.28",
 ]
+# Deep-learning OMR fallback. Heavy (TensorFlow + ~500MB model weights) so it
+# lives in its own group — the worker Docker image installs it by default, the
+# API Docker image does not. Local devs can skip it with `uv sync` (no flag)
+# or include it with `uv sync --group oemer`.
+oemer = [
+    "oemer>=0.1.7",
+]
 
 [tool.uv]
 package = false

@@ -72,9 +72,9 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH="/app/.venv/bin:$PATH"
 
-# Install dependencies using the lockfile for reproducibility
+# Install dependencies (including the oemer deep-learning OMR fallback)
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --no-install-project
+RUN uv sync --locked --no-dev --group oemer --no-install-project
 
 # Copy application code
 COPY . .
@@ -85,5 +85,14 @@ RUN useradd -m -r appuser && \
     chown -R appuser:appuser /app
 
 USER appuser
+
+# Pre-warm oemer: on first use it downloads ~500MB of ONNX model weights into
+# ~/.cache/oemer. Baking them into the image avoids a long cold start on the
+# first real job. We feed oemer a blank page; it will "fail" to recognise any
+# notes, which is fine — we only care about the side effect of the model
+# download being completed and cached under the appuser home.
+RUN python3 -c "from PIL import Image; Image.new('RGB',(640,480),'white').save('/tmp/prewarm.png')" \
+    && (oemer -o /tmp /tmp/prewarm.png || true) \
+    && rm -f /tmp/prewarm.png /tmp/prewarm.musicxml
 
 CMD ["python3", "-m", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]

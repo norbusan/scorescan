@@ -7,6 +7,7 @@ from app.tasks import celery_app
 from app.database import SessionLocal
 from app.models.job import Job, JobStatus
 from app.services.omr import OMRService
+from app.services.oemer import OemerService
 from app.services.transpose import TransposeService
 from app.services.pdf import PDFService
 
@@ -86,6 +87,42 @@ def process_score_task(
         success, musicxml_path, error, quality_warnings = omr_service.process_image(
             upload_path, user_id, job_id
         )
+
+        # Fall back to oemer if audiveris produced nothing usable. "Unusable"
+        # means either a hard failure or a MusicXML with no notes/measures —
+        # both surface as specific quality warnings from the OMR service.
+        oemer_service = OemerService()
+        audiveris_unusable = not success or any(
+            "No notes detected" in w or "No measures detected" in w
+            for w in (quality_warnings or [])
+        )
+        if audiveris_unusable and oemer_service.is_available():
+            logger.info(
+                f"Audiveris output unusable for job {job_id}; retrying with oemer"
+            )
+            (
+                oemer_success,
+                oemer_path,
+                oemer_error,
+                oemer_warnings,
+            ) = oemer_service.process_image(upload_path, user_id, job_id)
+
+            if oemer_success:
+                success = True
+                musicxml_path = oemer_path
+                error = None
+                # Preserve the Audiveris findings as context — useful for
+                # debugging why we fell back — plus oemer's own warnings.
+                audiveris_context = [
+                    f"Audiveris: {w}" for w in (quality_warnings or [])
+                ]
+                engine_note = "Fell back to oemer (deep-learning OMR)."
+                quality_warnings = [engine_note] + audiveris_context + oemer_warnings
+            else:
+                logger.warning(f"Oemer fallback also failed for job {job_id}: {oemer_error}")
+                quality_warnings = (quality_warnings or []) + [
+                    f"Oemer fallback failed: {oemer_error}"
+                ]
 
         if not success:
             logger.error(f"OMR failed for job {job_id}: {error}")
