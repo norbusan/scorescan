@@ -82,6 +82,46 @@ A web application for converting music score images to MusicXML and PDF with opt
    
    See [USER_APPROVAL_SYSTEM.md](USER_APPROVAL_SYSTEM.md) and [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for details.
 
+## Makefile Commands
+
+A `Makefile` at the repo root wraps the common Docker Compose and `uv`
+invocations. Run `make help` to list targets; the most useful ones:
+
+**Docker workflow**
+
+- `make build && make up` — build all images and start the stack in the
+  background
+- `make migrate && make superuser` — one-time DB setup (runs the sqlite
+  migrations, then creates an admin account interactively)
+- `make logs` — tail logs from every service
+- `make ps` — show which services are running
+- `make shell-backend`, `make shell-worker`, `make shell-frontend` — drop into
+  a running container
+- `make rebuild-worker` — full no-cache rebuild of the worker, for when you
+  touch the Audiveris or oemer Docker layers
+- `make down` — stop the stack
+- `make clean` — tear down images and volumes (preserves `backend/storage/`)
+- `make clean-all` — also wipe uploaded files, generated MusicXML, and PDFs
+
+**Host-side development** (iterate without Docker)
+
+- `make valkey-only` — start only Valkey in Docker; everything else runs on
+  the host
+- `make dev-backend` — run the FastAPI server and Celery worker against the
+  dockerised Valkey
+- `make dev-frontend` — `npm install` + `npm run dev`
+- `make test-preprocessing` — run the image preprocessing smoke test
+
+**Dependency management**
+
+- `make sync` — install backend deps into `backend/.venv` (includes the
+  `oemer` group)
+- `make lock` — refresh `backend/uv.lock` after editing `pyproject.toml`
+
+The compose command can be overridden if needed:
+`make up COMPOSE="docker-compose"` (v1 binary) or
+`make up COMPOSE="podman compose"`.
+
 ## Local Development Setup
 
 ### Backend
