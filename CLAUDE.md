@@ -29,7 +29,7 @@
 - **Mobile-First Design**: Camera capture for direct photo upload from mobile devices
 - **Advanced OMR**: Audiveris 5.11 with automatic image preprocessing
 - **Music Transposition**: Transpose by semitones (-12 to +12) or between keys
-- **Professional Output**: High-quality PDF generation via MuseScore 4.6
+- **Professional Output**: High-quality PDF generation via MuseScore 4.7
 - **User Management**: JWT-based authentication with admin approval workflow
 - **Job Tracking**: Complete history of all conversions with re-download capability
 
@@ -83,7 +83,7 @@
 │  │  1. Image Preprocessing (OpenCV)                      │   │
 │  │  2. OMR Processing (Audiveris 5.11)                    │   │
 │  │  3. Transposition (music21)                           │   │
-│  │  4. PDF Generation (MuseScore 4.6)                    │   │
+│  │  4. PDF Generation (MuseScore 4.7)                    │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -247,7 +247,7 @@ ImagePreprocessor(
 
 ### 5. PDF Generation
 
-**Engine**: MuseScore 4.6
+**Engine**: MuseScore 4.7
 
 **Process:**
 1. Receives MusicXML (original or transposed)
@@ -334,7 +334,7 @@ Registration → Pending → Approval → Active User
 | Password Hash | bcrypt | 4.0.1 | Secure password hashing |
 | OMR | Audiveris | 5.11 | Optical music recognition |
 | Music Theory | music21 | 9.1.0 | Transposition & analysis |
-| PDF Generation | MuseScore | 4.4 | Score rendering |
+| PDF Generation | MuseScore | 4.7 | Score rendering |
 | Image Processing | OpenCV | 4.9.0 | Image preprocessing |
 
 ### Frontend Technologies
