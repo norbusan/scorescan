@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.user import UserResponse
+from app.utils.storage import delete_user_storage
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -144,8 +145,10 @@ def reject_user(
         )
 
     email = user.email
-    db.delete(user)
+    user_id = user.id
+    db.delete(user)  # cascades to the user's jobs
     db.commit()
+    delete_user_storage(user_id)
 
     return {"message": f"User {email} has been rejected and deleted"}
 

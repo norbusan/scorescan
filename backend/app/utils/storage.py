@@ -67,6 +67,12 @@ def delete_file(relative_path: str) -> bool:
         return False
 
 
+def delete_user_storage(user_id: str) -> None:
+    """Remove all uploads and results of a user."""
+    for base in (settings.upload_path, settings.musicxml_path, settings.pdf_path):
+        shutil.rmtree(os.path.join(base, user_id), ignore_errors=True)
+
+
 def get_musicxml_path(user_id: str, job_id: str) -> str:
     """Generate the MusicXML output path for a job."""
     user_dir = os.path.join(settings.musicxml_path, user_id)
