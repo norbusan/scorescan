@@ -38,6 +38,7 @@ class ImagePreprocessor:
     def __init__(
         self,
         target_dpi: int = 300,
+        target_interline: int = 20,
         enable_deskew: bool = True,
         enable_perspective_correction: bool = True,
         enable_denoising: bool = True,
@@ -47,13 +48,17 @@ class ImagePreprocessor:
         Initialize the preprocessor with configuration options.
 
         Args:
-            target_dpi: Target DPI for output (higher = better quality, slower)
+            target_dpi: Fallback target DPI, used when no staves can be measured
+            target_interline: Target distance between staff lines in pixels.
+                Audiveris sizes its analysis by the interline; 20 px matches a
+                standard staff scanned at 300 DPI.
             enable_deskew: Enable rotation correction
             enable_perspective_correction: Enable perspective/dewarp correction
             enable_denoising: Enable noise reduction
             enable_binarization: Enable adaptive binarization
         """
         self.target_dpi = target_dpi
+        self.target_interline = target_interline
         self.enable_deskew = enable_deskew
         self.enable_perspective_correction = enable_perspective_correction
         self.enable_denoising = enable_denoising
@@ -89,19 +94,9 @@ class ImagePreprocessor:
             else:
                 gray = image
 
-            # Step 2: Deskew first on sharp edges (Hough works better before denoising blurs staff lines)
-            if self.enable_deskew:
-                logger.info("Detecting and correcting skew")
-                gray, angle = self._deskew(gray)
-                if angle != 0:
-                    logger.info(f"Corrected skew angle: {angle:.2f} degrees")
-
-            # Step 3: Denoise (after deskew to preserve edge signal for Hough)
-            if self.enable_denoising:
-                logger.info("Applying denoising")
-                gray = self._denoise(gray)
-
-            # Step 4: Perspective correction (if enabled)
+            # Step 2: Perspective correction first: unwarping the page also
+            # removes most of its rotation, and deskew pads the canvas with
+            # white, which hides the page edges the contour detector needs.
             if self.enable_perspective_correction:
                 logger.info("Attempting perspective correction")
                 corrected = self._correct_perspective(gray)
@@ -109,18 +104,33 @@ class ImagePreprocessor:
                     gray = corrected
                     logger.info("Perspective correction applied")
 
-            # Step 5: Contrast enhancement
-            logger.info("Enhancing contrast")
-            gray = self._enhance_contrast(gray)
+            # Step 3: Deskew on sharp edges (before denoising blurs staff lines)
+            if self.enable_deskew:
+                logger.info("Detecting and correcting skew")
+                gray, angle = self._deskew(gray)
+                if angle != 0:
+                    logger.info(f"Corrected skew angle: {angle:.2f} degrees")
+
+            # Steps 4-5: Denoise and enhance contrast, unless the page is
+            # already clean (scanner output, rendered PDF). There they only
+            # amplify paper texture.
+            if self._is_clean(gray):
+                logger.info("Image is clean; skipping denoising and contrast")
+            else:
+                if self.enable_denoising:
+                    logger.info("Applying denoising")
+                    gray = self._denoise(gray)
+                logger.info("Enhancing contrast")
+                gray = self._enhance_contrast(gray)
 
             # Step 6: Adaptive binarization
             if self.enable_binarization:
                 logger.info("Applying adaptive binarization")
                 gray = self._binarize(gray)
 
-            # Step 7: Ensure minimum resolution
-            logger.info("Checking resolution")
-            gray = self._ensure_resolution(gray)
+            # Step 7: Scale so the staff interline suits Audiveris
+            logger.info("Normalizing scale")
+            gray = self._normalize_scale(gray)
 
             # Save the preprocessed image
             success = cv2.imwrite(output_path, gray)
@@ -189,8 +199,9 @@ class ImagePreprocessor:
             projection = rotated.sum(axis=1, dtype=np.int64)
             return float(projection.var())
 
-        # Coarse search: -5° to +5° in 0.5° steps
-        coarse = np.arange(-5.0, 5.01, 0.5)
+        # Coarse search: -15 to +15 degrees in 0.5 degree steps (handheld
+        # photos are often tilted by more than a few degrees)
+        coarse = np.arange(-15.0, 15.01, 0.5)
         best_angle = 0.0
         best_score = profile_variance(binary)
         h, w = binary.shape
@@ -431,45 +442,77 @@ class ImagePreprocessor:
 
         return binary
 
-    def _ensure_resolution(self, image: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _is_clean(image: np.ndarray) -> bool:
+        """True if the page is already close to black ink on uniform paper."""
+        midtones = np.count_nonzero((image > 64) & (image < 192)) / image.size
+        paper = image[image >= 192]
+        paper_noise = float(paper.std()) if paper.size else 255.0
+        return midtones < 0.03 and paper_noise < 8.0
+
+    @staticmethod
+    def estimate_interline(image: np.ndarray) -> Optional[float]:
+        """Estimate the staff interline (line-to-line distance) in pixels.
+
+        Samples columns of the ink mask and histograms the distance between the
+        starts of consecutive vertical ink runs. Staff lines cross nearly every
+        column, so their spacing dominates the histogram. Returns None when no
+        clear peak exists (no staves found).
         """
-        Ensure the image has sufficient resolution for OMR.
+        _, ink = cv2.threshold(
+            image, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        h, w = ink.shape
+        n_cols = min(w, 200)
+        cols = ink[:, np.linspace(0, w - 1, n_cols).astype(int)].astype(np.int8)
+        padded = np.pad(cols, ((1, 0), (0, 0)))
+        max_spacing = min(200, h // 4)
+        hist = np.zeros(max_spacing + 1, dtype=np.int64)
+        for c in range(n_cols):
+            starts = np.flatnonzero(np.diff(padded[:, c]) == 1)
+            spacing = np.diff(starts)
+            spacing = spacing[(spacing >= 4) & (spacing <= max_spacing)]
+            hist += np.bincount(spacing, minlength=max_spacing + 1)
+        # Merge neighbouring bins so a spacing jittering between n and n+1
+        # still forms one peak
+        smoothed = np.convolve(hist, np.ones(3, dtype=np.int64), mode="same")
+        peak = int(smoothed.argmax())
+        # A staff gives 4 spacings per column; require about one staff's worth
+        if smoothed[peak] < 4 * n_cols:
+            return None
+        window = hist[max(peak - 1, 0) : peak + 2]
+        bins = np.arange(max(peak - 1, 0), max(peak - 1, 0) + len(window))
+        return float((window * bins).sum() / window.sum())
 
-        Upscales if necessary to target DPI (assuming 8.5x11" page).
+    def _normalize_scale(self, image: np.ndarray) -> np.ndarray:
+        """Rescale so the staff interline is close to target_interline.
 
-        Args:
-            image: Grayscale image
-
-        Returns:
-            Image with sufficient resolution
+        Falls back to a DPI estimate (short side = 8.5 inches, upscale only)
+        when no staves can be measured.
         """
         height, width = image.shape
+        interline = self.estimate_interline(image)
 
-        # Assume standard letter size (8.5 x 11 inches)
-        # Calculate current approximate DPI based on width
-        # (assuming landscape orientation is more common for music)
-        assumed_width_inches = 11.0
-        current_dpi = width / assumed_width_inches
+        if interline is not None:
+            logger.info(f"Estimated staff interline: {interline:.1f} px")
+            t = self.target_interline
+            if 0.8 * t <= interline <= 2 * t:
+                return image
+            scale = t / interline
+        else:
+            current_dpi = min(height, width) / 8.5
+            logger.info(f"No staves measured; estimated ~{current_dpi:.0f} DPI")
+            if current_dpi >= self.target_dpi:
+                return image
+            scale = self.target_dpi / current_dpi
 
-        if current_dpi < self.target_dpi:
-            # Need to upscale
-            scale_factor = self.target_dpi / current_dpi
-            new_width = int(width * scale_factor)
-            new_height = int(height * scale_factor)
-
-            logger.info(
-                f"Upscaling from ~{current_dpi:.0f} DPI to {self.target_dpi} DPI"
-            )
-            logger.info(f"New size: {new_width}x{new_height}")
-
-            # Use INTER_CUBIC for upscaling (better quality)
-            upscaled = cv2.resize(
-                image, (new_width, new_height), interpolation=cv2.INTER_CUBIC
-            )
-
-            return upscaled
-
-        return image
+        # ponytail: fixed clamps; make configurable if real inputs hit them
+        scale = min(max(scale, 0.25), 4.0)
+        scale = min(scale, 12000 / max(height, width))
+        new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+        interp = cv2.INTER_CUBIC if scale > 1 else cv2.INTER_AREA
+        logger.info(f"Rescaling by {scale:.2f} to {new_size[0]}x{new_size[1]}")
+        return cv2.resize(image, new_size, interpolation=interp)
 
 
 def preprocess_for_omr(
