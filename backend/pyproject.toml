@@ -9,7 +9,8 @@ dependencies = [
     "uvicorn[standard]>=0.34",
     "python-multipart>=0.0.18",
     # Database
-    "sqlalchemy>=2.0",
+    # Held below 2.1 until tested; see the 2.1 migration notes
+    "sqlalchemy>=2.0,<2.1",
     "alembic>=1.14",
     # Authentication
     "passlib>=1.7",
@@ -22,9 +23,11 @@ dependencies = [
     # Celery 5.x requires redis<7
     "redis>=5,<7",
     # Music processing
-    "music21>=9.1",
+    # music21 10 is a major release; hold until transposition is re-tested
+    "music21>=9.1,<10",
     # Image processing for OMR preprocessing
-    "opencv-python-headless>=4.9",
+    # OpenCV 5 is a major release; hold until preprocessing is re-tested
+    "opencv-python-headless>=4.9,<5",
     "numpy>=1.26",
     "pypdfium2>=4.30",
     # Utilities
