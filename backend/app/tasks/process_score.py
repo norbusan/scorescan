@@ -208,6 +208,6 @@ def process_score_task(
     except Exception as e:
         logger.exception(f"Unexpected error processing job {job_id}")
         update_job_status(
-            job_id, JobStatus.FAILED, error_message=f"Processing error: {str(e)}"
+            job_id, JobStatus.FAILED, error_message="Unexpected processing error"
         )
         return {"success": False, "error": str(e)}

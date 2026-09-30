@@ -115,9 +115,8 @@ class TransposeService:
             return True, output_path or input_path, None
 
         except Exception as e:
-            error_msg = f"Transposition error: {str(e)}"
-            logger.exception(error_msg)
-            return False, None, error_msg
+            logger.exception(f"Transposition error: {e}")
+            return False, None, "Could not transpose the score"
 
     def transpose_by_key(
         self,
@@ -168,9 +167,8 @@ class TransposeService:
             return True, output_path or input_path, None
 
         except Exception as e:
-            error_msg = f"Transposition error: {str(e)}"
-            logger.exception(error_msg)
-            return False, None, error_msg
+            logger.exception(f"Transposition error: {e}")
+            return False, None, "Could not transpose the score"
 
     def detect_key(self, input_path: str) -> Optional[str]:
         """

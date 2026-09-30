@@ -152,7 +152,8 @@ class OemerService:
             except subprocess.TimeoutExpired:
                 return False, None, "Oemer timed out (exceeded 10 minutes)", warnings
             except FileNotFoundError:
-                return False, None, f"Oemer not found at {self.oemer_path}", warnings
+                logger.error(f"Oemer not found at {self.oemer_path}")
+                return False, None, "Oemer is not available", warnings
 
             if result.stdout:
                 logger.info(f"Oemer stdout: {result.stdout[-2000:]}")
@@ -162,10 +163,10 @@ class OemerService:
             # Oemer writes <stem>.musicxml next to the input (or in -o dir).
             produced = self._find_output(work_dir)
             if not produced:
-                err = f"Oemer produced no MusicXML (returncode={result.returncode})"
-                if result.stderr:
-                    err += f"; stderr tail: {result.stderr[-300:]}"
-                return False, None, err, warnings
+                logger.error(
+                    f"Oemer produced no MusicXML (returncode={result.returncode})"
+                )
+                return False, None, "Oemer could not recognize a score", warnings
 
             from app.services.omr import get_musicxml_path_with_ext
 
@@ -178,7 +179,7 @@ class OemerService:
             raise
         except Exception as e:
             logger.exception(f"Oemer processing error: {e}")
-            return False, None, f"Oemer processing error: {e}", warnings
+            return False, None, "Unexpected oemer error", warnings
         finally:
             try:
                 shutil.rmtree(work_dir, ignore_errors=True)

@@ -77,22 +77,19 @@ class PDFService:
                 logger.info(f"PDF conversion complete: {output_rel_path}")
                 return True, output_rel_path, None
             else:
-                error_msg = f"MuseScore failed to produce PDF: {result.stderr}"
-                logger.error(error_msg)
-                return False, None, error_msg
+                logger.error(f"MuseScore failed to produce PDF: {result.stderr}")
+                return False, None, "MuseScore could not render the score"
 
         except subprocess.TimeoutExpired:
             error_msg = "PDF conversion timed out (exceeded 2 minutes)"
             logger.error(error_msg)
             return False, None, error_msg
         except FileNotFoundError as e:
-            error_msg = f"MuseScore not found at {self.musescore_path}: {e}"
-            logger.error(error_msg)
-            return False, None, error_msg
+            logger.error(f"MuseScore not found at {self.musescore_path}: {e}")
+            return False, None, "PDF renderer is not available"
         except Exception as e:
-            error_msg = f"PDF conversion error: {str(e)}"
-            logger.exception(error_msg)
-            return False, None, error_msg
+            logger.exception(f"PDF conversion error: {e}")
+            return False, None, "Unexpected error during PDF conversion"
 
     def is_available(self) -> bool:
         """Check if MuseScore is available and working."""

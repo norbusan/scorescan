@@ -28,6 +28,8 @@ _AUDIVERIS_WARN_RE = re.compile(r"\b(WARN|ERROR|SEVERE)\b(.*)", re.IGNORECASE)
 _MUSICXML_NS = {
     "": "",  # default empty namespace
 }
+# Directory part of an absolute path, e.g. "/app/storage/musicxml/<id>/"
+_DIR_RE = re.compile(r"(?<![\w.])/(?:[^\s/'\":]+/)+")
 # Audiveris names split movements <stem>.mvt<N>.mxl
 _MOVEMENT_RE = re.compile(r"\.mvt(\d+)\.")
 # Inputs that can hold several pages; these are preprocessed page by page
@@ -376,10 +378,10 @@ class OMRService:
             # at what it exported rather than at the return code.
             outputs = self._collect_outputs(work_dir)
             if not outputs:
-                error_msg = f"No MusicXML output file found. Audiveris return code: {result.returncode}"
-                if result.stderr:
-                    error_msg += f"\nStderr: {result.stderr[:500]}"
-                return False, None, error_msg, warnings
+                logger.error(
+                    f"Audiveris exported nothing (return code {result.returncode})"
+                )
+                return False, None, "Audiveris could not recognize a score", warnings
 
             logger.info(f"Found output file(s): {outputs}")
 
@@ -421,13 +423,11 @@ class OMRService:
             logger.error(error_msg)
             return False, None, error_msg, []
         except FileNotFoundError as e:
-            error_msg = f"Audiveris not found at {self.audiveris_path}: {e}"
-            logger.error(error_msg)
-            return False, None, error_msg, []
+            logger.error(f"Audiveris not found at {self.audiveris_path}: {e}")
+            return False, None, "OMR engine is not available", []
         except Exception as e:
-            error_msg = f"OMR processing error: {str(e)}"
-            logger.exception(error_msg)
-            return False, None, error_msg, []
+            logger.exception(f"OMR processing error: {e}")
+            return False, None, "Unexpected error during score recognition", []
         finally:
             if work_dir:
                 shutil.rmtree(work_dir, ignore_errors=True)
@@ -459,7 +459,8 @@ class OMRService:
                 if key in seen:
                     continue
                 seen.add(key)
-                warnings.append(line[:300])
+                # Drop directory parts so server paths are not shown to users
+                warnings.append(_DIR_RE.sub("", line)[:300])
                 if len(warnings) >= max_warnings:
                     warnings.append(
                         f"(truncated; {max_warnings}+ Audiveris warnings emitted)"
