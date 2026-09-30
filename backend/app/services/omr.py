@@ -26,6 +26,8 @@ _AUDIVERIS_WARN_RE = re.compile(r"\b(WARN|ERROR|SEVERE)\b(.*)", re.IGNORECASE)
 _MUSICXML_NS = {
     "": "",  # default empty namespace
 }
+# Audiveris names split movements <stem>.mvt<N>.mxl
+_MOVEMENT_RE = re.compile(r"\.mvt(\d+)\.")
 
 
 def get_musicxml_path_with_ext(user_id: str, job_id: str, ext: str) -> str:
@@ -201,6 +203,82 @@ class OMRService:
             logger.exception(f"PDF preprocessing failed: {e}")
             return None
 
+    def _prepare_input(self, abs_input_path: str, work_dir: str) -> str:
+        """Preprocess the input into work_dir. Returns the path to feed Audiveris."""
+        if not self.enable_preprocessing:
+            return abs_input_path
+
+        input_path_obj = Path(abs_input_path)
+        if input_path_obj.suffix.lower() == ".pdf":
+            logger.info("Preprocessing PDF by rendering pages at 300 DPI")
+            pp_pdf = self._preprocess_pdf(abs_input_path, work_dir)
+            if pp_pdf:
+                logger.info(f"PDF preprocessing successful: {pp_pdf}")
+                return pp_pdf
+            logger.warning("PDF preprocessing failed; using original PDF")
+            return abs_input_path
+
+        logger.info("Preprocessing image for improved OMR accuracy")
+        preprocessed_path = os.path.join(
+            work_dir, f"{input_path_obj.stem}_preprocessed{input_path_obj.suffix}"
+        )
+        success, error = preprocess_for_omr(abs_input_path, preprocessed_path)
+        if success:
+            logger.info(f"Image preprocessing successful: {preprocessed_path}")
+            return preprocessed_path
+        logger.warning(f"Image preprocessing failed: {error}; using original image")
+        return abs_input_path
+
+    @staticmethod
+    def _collect_outputs(work_dir: str) -> List[str]:
+        """Return the MusicXML exports in work_dir, ordered by movement.
+
+        Audiveris writes <stem>.mxl for a single-movement score and
+        <stem>.mvt1.mxl, <stem>.mvt2.mxl, ... when it splits the score.
+        """
+        found: List[str] = []
+        for root, _, files in os.walk(work_dir):
+            for f in files:
+                if f.endswith((".mxl", ".musicxml")) or (
+                    f.endswith(".xml") and not f.startswith("container")
+                ):
+                    found.append(os.path.join(root, f))
+
+        def movement_index(path: str) -> int:
+            m = _MOVEMENT_RE.search(os.path.basename(path))
+            return int(m.group(1)) if m else 0
+
+        return sorted(found, key=movement_index)
+
+    @staticmethod
+    def _merge_movements(paths: List[str], out_path: str) -> List[str]:
+        """Concatenate movement files into one score. Returns warnings."""
+        from music21 import converter, stream
+
+        warnings: List[str] = []
+        base = converter.parse(paths[0])
+        for n, path in enumerate(paths[1:], start=2):
+            movement = converter.parse(path)
+            if len(movement.parts) != len(base.parts):
+                warnings.append(
+                    f"Movement {n} has a different number of parts than the "
+                    "first movement and was dropped."
+                )
+                continue
+            for base_part, mv_part in zip(base.parts, movement.parts):
+                existing = list(base_part.getElementsByClass(stream.Measure))
+                next_number = (existing[-1].number if existing else 0) + 1
+                offset = base_part.highestTime
+                measures = [
+                    (m.getOffsetBySite(mv_part), m)
+                    for m in mv_part.getElementsByClass(stream.Measure)
+                ]
+                for i, (m_offset, m) in enumerate(measures):
+                    m.number = next_number + i
+                    base_part.insert(offset + m_offset, m)
+        base.write("musicxml", fp=out_path)
+        return warnings
+
     def process_image(
         self, input_path: str, user_id: str, job_id: str
     ) -> Tuple[bool, Optional[str], Optional[str], List[str]]:
@@ -212,56 +290,21 @@ class OMRService:
             quality_warnings is a possibly-empty list of human-readable strings
             derived from Audiveris output and the resulting MusicXML.
         """
+        work_dir: Optional[str] = None
         try:
-            # Get absolute paths
             abs_input_path = get_file_path(input_path)
-
-            # Create output directory
-            output_dir_rel = os.path.join("musicxml", user_id)
-            abs_output_dir = get_file_path(output_dir_rel)
+            abs_output_dir = get_file_path(os.path.join("musicxml", user_id))
             os.makedirs(abs_output_dir, exist_ok=True)
 
+            # Per-job scratch dir: Audiveris writes its exports, .omr project and
+            # log here, so outputs of other jobs of the same user are never
+            # picked up, and everything is removed when the job is done.
+            work_dir = tempfile.mkdtemp(
+                prefix=f"scorescan_{job_id}_", dir=abs_output_dir
+            )
+
             logger.info(f"Starting OMR processing for {abs_input_path}")
-
-            # Preprocess the image if enabled
-            processed_input_path = abs_input_path
-            is_pdf = abs_input_path.lower().endswith(".pdf")
-            pdf_work_dir: Optional[str] = None
-            if self.enable_preprocessing:
-                input_path_obj = Path(abs_input_path)
-
-                if is_pdf:
-                    logger.info("Preprocessing PDF by rendering pages at 300 DPI")
-                    pdf_work_dir = tempfile.mkdtemp(
-                        prefix=f"scorescan_pdf_{job_id}_", dir=abs_output_dir
-                    )
-                    pp_pdf = self._preprocess_pdf(abs_input_path, pdf_work_dir)
-                    if pp_pdf:
-                        processed_input_path = pp_pdf
-                        logger.info(f"PDF preprocessing successful: {pp_pdf}")
-                    else:
-                        logger.warning("PDF preprocessing failed; using original PDF")
-                else:
-                    logger.info("Preprocessing image for improved OMR accuracy")
-                    preprocessed_filename = (
-                        f"{input_path_obj.stem}_preprocessed{input_path_obj.suffix}"
-                    )
-                    preprocessed_path = os.path.join(
-                        abs_output_dir, preprocessed_filename
-                    )
-
-                    success, error = preprocess_for_omr(
-                        abs_input_path, preprocessed_path
-                    )
-
-                    if success:
-                        logger.info(
-                            f"Image preprocessing successful: {preprocessed_path}"
-                        )
-                        processed_input_path = preprocessed_path
-                    else:
-                        logger.warning(f"Image preprocessing failed: {error}")
-                        logger.warning("Falling back to original image")
+            processed_input_path = self._prepare_input(abs_input_path, work_dir)
 
             # Run Audiveris in batch mode with xvfb-run for headless operation
             # Audiveris 5.10 CLI: -batch -export -output <dir> [-option ...] [-step ...] <input>
@@ -272,7 +315,7 @@ class OMRService:
                 "-batch",
                 "-export",
                 "-output",
-                abs_output_dir,
+                work_dir,
             ]
             for key, value in self._build_audiveris_options().items():
                 cmd.extend(["-option", f"{key}={value}"])
@@ -294,40 +337,6 @@ class OMRService:
             if result.stderr:
                 logger.warning(f"Audiveris stderr: {result.stderr}")
 
-            # Audiveris may return non-zero even on partial success, check for output files
-            # Find the output file (Audiveris names it based on input filename)
-            # Use the processed input path stem (which may be the preprocessed file)
-            input_stem = Path(processed_input_path).stem
-            possible_outputs = [
-                (os.path.join(abs_output_dir, f"{input_stem}.mxl"), ".mxl"),
-                (os.path.join(abs_output_dir, f"{input_stem}.musicxml"), ".musicxml"),
-                (os.path.join(abs_output_dir, f"{input_stem}.xml"), ".xml"),
-            ]
-
-            output_file = None
-            output_ext = None
-            for path, ext in possible_outputs:
-                if os.path.exists(path):
-                    output_file = path
-                    output_ext = ext
-                    break
-
-            if not output_file:
-                # Check for any musicxml-like file in the output dir
-                for f in os.listdir(abs_output_dir):
-                    if f.endswith(".mxl"):
-                        output_file = os.path.join(abs_output_dir, f)
-                        output_ext = ".mxl"
-                        break
-                    elif f.endswith(".musicxml"):
-                        output_file = os.path.join(abs_output_dir, f)
-                        output_ext = ".musicxml"
-                        break
-                    elif f.endswith(".xml") and not f.startswith("container"):
-                        output_file = os.path.join(abs_output_dir, f)
-                        output_ext = ".xml"
-                        break
-
             # Collect quality signals from Audiveris logs; useful even on
             # success because Audiveris often returns partial results with
             # warnings that affect usability of the output.
@@ -335,34 +344,36 @@ class OMRService:
                 result.stdout, result.stderr
             )
 
-            if not output_file:
+            # Audiveris may return non-zero even on partial success, so look
+            # at what it exported rather than at the return code.
+            outputs = self._collect_outputs(work_dir)
+            if not outputs:
                 error_msg = f"No MusicXML output file found. Audiveris return code: {result.returncode}"
                 if result.stderr:
                     error_msg += f"\nStderr: {result.stderr[:500]}"
                 return False, None, error_msg, warnings
 
-            logger.info(f"Found output file: {output_file} with extension {output_ext}")
+            logger.info(f"Found output file(s): {outputs}")
 
-            # If it's a .mxl (compressed MusicXML), extract it to .musicxml
-            # This ensures music21 can parse it correctly
             final_rel_path = get_musicxml_path_with_ext(user_id, job_id, ".musicxml")
             final_abs_path = get_file_path(final_rel_path)
 
-            if output_ext == ".mxl":
+            if len(outputs) > 1:
+                warnings.append(
+                    f"Audiveris split the score into {len(outputs)} movements; "
+                    "they were joined into a single score."
+                )
+                warnings.extend(self._merge_movements(outputs, final_abs_path))
+            elif outputs[0].endswith(".mxl"):
+                # Extract compressed MusicXML so music21 can parse it reliably
                 logger.info(f"Extracting compressed MXL to {final_abs_path}")
-                if not self._extract_mxl_to_musicxml(output_file, final_abs_path):
-                    # If extraction fails, try to use the file directly
-                    # (maybe music21 can handle it)
+                if not self._extract_mxl_to_musicxml(outputs[0], final_abs_path):
+                    # Keep the .mxl as-is; MuseScore and music21 can read it
                     final_rel_path = get_musicxml_path_with_ext(user_id, job_id, ".mxl")
                     final_abs_path = get_file_path(final_rel_path)
-                    shutil.move(output_file, final_abs_path)
-                else:
-                    # Remove the original .mxl file after successful extraction
-                    os.remove(output_file)
+                    shutil.move(outputs[0], final_abs_path)
             else:
-                # Just move/rename the file
-                if output_file != final_abs_path:
-                    shutil.move(output_file, final_abs_path)
+                shutil.move(outputs[0], final_abs_path)
 
             logger.info(f"OMR processing complete: {final_rel_path}")
 
@@ -372,22 +383,6 @@ class OMRService:
                 logger.warning(
                     f"OMR produced {len(warnings)} quality warning(s) for job {job_id}"
                 )
-
-            # Clean up preprocessed artifacts
-            if pdf_work_dir and os.path.isdir(pdf_work_dir):
-                try:
-                    shutil.rmtree(pdf_work_dir)
-                    logger.info(f"Cleaned up PDF work dir: {pdf_work_dir}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up PDF work dir: {e}")
-            elif processed_input_path != abs_input_path and os.path.exists(
-                processed_input_path
-            ):
-                try:
-                    os.remove(processed_input_path)
-                    logger.info(f"Cleaned up preprocessed file: {processed_input_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up preprocessed file: {e}")
 
             return True, final_rel_path, None, warnings
 
@@ -403,6 +398,9 @@ class OMRService:
             error_msg = f"OMR processing error: {str(e)}"
             logger.exception(error_msg)
             return False, None, error_msg, []
+        finally:
+            if work_dir:
+                shutil.rmtree(work_dir, ignore_errors=True)
 
     def _collect_audiveris_warnings(self, stdout: str, stderr: str) -> List[str]:
         """Extract a capped list of WARN/ERROR lines from Audiveris output."""
