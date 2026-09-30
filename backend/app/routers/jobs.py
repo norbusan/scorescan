@@ -23,6 +23,7 @@ from app.utils.storage import (
 from app.utils.token_blacklist import validate_download_token
 from app.config import get_settings
 from app.tasks.process_score import process_score_task
+from app.services.transpose import KEY_MAP
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 settings = get_settings()
@@ -148,6 +149,13 @@ async def create_job(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Both from_key and to_key must be provided for key-based transposition",
         )
+
+    for k in (transpose_from_key, transpose_to_key):
+        if k and k not in KEY_MAP:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown key: {k}",
+            )
 
     # Create job record
     job_id = str(uuid.uuid4())

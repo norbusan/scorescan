@@ -142,8 +142,8 @@ class TransposeService:
             abs_output = get_file_path(output_path) if output_path else abs_input
 
             # Convert key names to music21 format
-            m21_from_key = KEY_MAP.get(from_key, from_key)
-            m21_to_key = KEY_MAP.get(to_key, to_key)
+            m21_from_key = KEY_MAP[from_key]
+            m21_to_key = KEY_MAP[to_key]
 
             logger.info(f"Transposing {input_path} from {from_key} to {to_key}")
 
