@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from app.config import get_settings
@@ -93,5 +93,5 @@ def verify_token(token: str, token_type: str = "access") -> Optional[dict]:
                 return None
 
         return payload
-    except JWTError:
+    except jwt.PyJWTError:
         return None
