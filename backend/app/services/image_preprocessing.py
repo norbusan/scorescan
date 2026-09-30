@@ -16,6 +16,7 @@ especially for mobile photos of printed scores.
 import cv2
 import numpy as np
 import logging
+from celery.exceptions import SoftTimeLimitExceeded
 from pathlib import Path
 from typing import Optional, Tuple
 from PIL import Image
@@ -143,6 +144,8 @@ class ImagePreprocessor:
 
             return True, None
 
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as e:
             error_msg = f"Image preprocessing error: {str(e)}"
             logger.exception(error_msg)

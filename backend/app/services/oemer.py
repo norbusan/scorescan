@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from celery.exceptions import SoftTimeLimitExceeded
 from PIL import Image
 
 from app.config import get_settings
@@ -171,6 +172,8 @@ class OemerService:
             shutil.move(produced, final_abs)
             logger.info(f"Oemer OMR complete: {final_rel}")
             return True, final_rel, None, warnings
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as e:
             logger.exception(f"Oemer processing error: {e}")
             return False, None, f"Oemer processing error: {e}", warnings

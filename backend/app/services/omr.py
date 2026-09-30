@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from celery.exceptions import SoftTimeLimitExceeded
 from PIL import Image, ImageSequence
 
 from app.config import get_settings
@@ -215,6 +216,8 @@ class OMRService:
             out_tiff = os.path.join(work_dir, "preprocessed.tif")
             self._combine_pages_to_tiff(processed_paths, out_tiff)
             return out_tiff
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as e:
             logger.exception(f"Multi-page preprocessing failed: {e}")
             return None
@@ -403,6 +406,8 @@ class OMRService:
 
             return True, final_rel_path, None, warnings
 
+        except SoftTimeLimitExceeded:
+            raise
         except subprocess.TimeoutExpired:
             error_msg = "OMR processing timed out (exceeded 5 minutes)"
             logger.error(error_msg)

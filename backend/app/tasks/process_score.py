@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime
 from celery import current_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from app.tasks import celery_app
 from app.database import SessionLocal
@@ -198,6 +199,12 @@ def process_score_task(
             "pdf_path": pdf_path,
         }
 
+    except SoftTimeLimitExceeded:
+        logger.error(f"Job {job_id} exceeded the task time limit")
+        update_job_status(
+            job_id, JobStatus.FAILED, error_message="Processing timed out"
+        )
+        return {"success": False, "error": "Processing timed out"}
     except Exception as e:
         logger.exception(f"Unexpected error processing job {job_id}")
         update_job_status(
