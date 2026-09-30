@@ -21,7 +21,7 @@ A web application for converting music score images to MusicXML and PDF with opt
 - **Python 3.12** with **FastAPI**
 - **SQLite** database with SQLAlchemy ORM
 - **Celery** + **Valkey** for async task processing
-- **Audiveris 5.10** for OMR (Optical Music Recognition)
+- **Audiveris 5.11** for OMR (Optical Music Recognition)
 - **music21** for transposition
 - **MuseScore 4.6** for PDF generation
 
@@ -38,8 +38,8 @@ A web application for converting music score images to MusicXML and PDF with opt
 - (For local development without Docker)
   - Python 3.12+
   - Node.js 18+
-  - Java 21+ (bundled with Audiveris 5.10 .deb package)
-  - Audiveris 5.10
+  - Java 21+ (bundled with Audiveris 5.11 .deb package)
+  - Audiveris 5.11
   - MuseScore 4.6
 
 ## Quick Start with Docker
