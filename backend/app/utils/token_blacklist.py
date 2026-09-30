@@ -77,12 +77,11 @@ def validate_download_token(token: str, job_id: str) -> Optional[str]:
     The token is deleted after use (single-use).
     """
     r = get_redis()
-    key = f"{_DOWNLOAD_PREFIX}{token}"
-    value = r.get(key)
+    # GETDEL is atomic, so two concurrent requests cannot both consume the token
+    value = r.getdel(f"{_DOWNLOAD_PREFIX}{token}")
     if not value:
         return None
     stored_user_id, stored_job_id = value.split(":", 1)
     if stored_job_id != job_id:
         return None
-    r.delete(key)  # single-use
     return stored_user_id
