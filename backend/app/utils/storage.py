@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 from fastapi import UploadFile
+from PIL import Image, ImageSequence
 
 from app.config import get_settings
 
@@ -84,6 +85,61 @@ def validate_file_extension(filename: str) -> bool:
     """Check if the file has an allowed extension."""
     ext = Path(filename).suffix.lower().lstrip(".")
     return ext in settings.allowed_extensions
+
+
+# Magic numbers of the accepted formats, keyed by file extension
+_SIGNATURES = {
+    "png": (b"\x89PNG\r\n\x1a\n",),
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "pdf": (b"%PDF-",),
+    "tif": (b"II*\x00", b"MM\x00*"),
+    "tiff": (b"II*\x00", b"MM\x00*"),
+}
+
+
+def validate_file_signature(filename: str, header: bytes) -> bool:
+    """Check that the file content starts with the magic number of its extension."""
+    ext = Path(filename).suffix.lower().lstrip(".")
+    return any(header.startswith(sig) for sig in _SIGNATURES.get(ext, ()))
+
+
+def check_input_limits(path: str) -> Optional[str]:
+    """Return a user-facing error if the file has too many pages or pixels."""
+    max_pages = settings.max_pages
+    max_mp = settings.max_image_megapixels
+    try:
+        if path.lower().endswith(".pdf"):
+            import pypdfium2 as pdfium
+
+            pdf = pdfium.PdfDocument(path)
+            try:
+                n_pages = len(pdf)
+            finally:
+                pdf.close()
+            if n_pages == 0:
+                return "The PDF has no pages."
+            if n_pages > max_pages:
+                return f"The PDF has {n_pages} pages; the maximum is {max_pages}."
+            # Page pixel size is capped at render time instead
+            return None
+
+        with Image.open(path) as im:
+            n_pages = getattr(im, "n_frames", 1)
+            if n_pages > max_pages:
+                return f"The file has {n_pages} pages; the maximum is {max_pages}."
+            for frame in ImageSequence.Iterator(im):
+                w, h = frame.size
+                if w * h > max_mp * 1_000_000:
+                    return (
+                        f"The image is too large ({w}x{h}); the maximum is "
+                        f"{max_mp} megapixels."
+                    )
+        return None
+    except Image.DecompressionBombError:
+        return f"The image is too large; the maximum is {max_mp} megapixels."
+    except Exception:
+        return "The file could not be read as an image or PDF."
 
 
 def get_file_size_mb(filepath: str) -> float:

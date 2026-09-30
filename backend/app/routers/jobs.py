@@ -15,6 +15,8 @@ from app.routers.auth import get_current_user
 from app.utils.storage import (
     save_upload_file,
     validate_file_extension,
+    validate_file_signature,
+    check_input_limits,
     get_file_path,
     delete_file,
 )
@@ -122,6 +124,12 @@ async def create_job(
             detail=f"File too large. Maximum size: {settings.max_upload_size_mb}MB",
         )
 
+    if not validate_file_signature(file.filename, content[:8]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File content does not match its extension",
+        )
+
     # Reset file position after reading
     await file.seek(0)
 
@@ -149,6 +157,12 @@ async def create_job(
 
     # Save uploaded file
     upload_path = await save_upload_file(file, current_user.id, job_id)
+
+    # Reject page/pixel counts that would exhaust the worker
+    limit_error = check_input_limits(get_file_path(upload_path))
+    if limit_error:
+        delete_file(upload_path)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=limit_error)
 
     # Create job in database
     job = Job(

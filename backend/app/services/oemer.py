@@ -74,7 +74,9 @@ class OemerService:
                 try:
                     if len(pdf) == 0:
                         return None
-                    bitmap = pdf[0].render(scale=300 / 72.0, rotation=0)
+                    from app.services.omr import _render_scale
+
+                    bitmap = pdf[0].render(scale=_render_scale(pdf[0], 300), rotation=0)
                     bitmap.to_pil().save(out, "PNG")
                 finally:
                     pdf.close()

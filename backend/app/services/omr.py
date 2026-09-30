@@ -1,3 +1,4 @@
+import math
 import subprocess
 import os
 import logging
@@ -31,6 +32,13 @@ _MUSICXML_NS = {
 _MOVEMENT_RE = re.compile(r"\.mvt(\d+)\.")
 # Inputs that can hold several pages; these are preprocessed page by page
 _MULTIPAGE_EXTENSIONS = (".pdf", ".tif", ".tiff")
+
+
+def _render_scale(page, dpi: int) -> float:
+    """PDF render scale for `dpi`, reduced so the page stays under the pixel cap."""
+    w_pt, h_pt = page.get_size()
+    max_px = settings.max_image_megapixels * 1_000_000
+    return min(dpi / 72.0, math.sqrt(max_px / max(w_pt * h_pt, 1.0)))
 
 
 def get_musicxml_path_with_ext(user_id: str, job_id: str, ext: str) -> str:
@@ -150,7 +158,7 @@ class OMRService:
             pdf = pdfium.PdfDocument(path)
             try:
                 for i, page in enumerate(pdf):
-                    bitmap = page.render(scale=dpi / 72.0, rotation=0)
+                    bitmap = page.render(scale=_render_scale(page, dpi), rotation=0)
                     page_path = os.path.join(out_dir, f"page_{i + 1:03d}.png")
                     bitmap.to_pil().save(page_path, "PNG")
                     paths.append(page_path)

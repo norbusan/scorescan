@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     storage_path: str = "./storage"
     max_upload_size_mb: int = 50
     allowed_extensions: List[str] = ["png", "jpg", "jpeg", "pdf", "tiff", "tif"]
+    max_pages: int = 30  # per PDF/TIFF upload
+    max_image_megapixels: int = 60  # per page, after PDF rendering
 
     # CORS
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
