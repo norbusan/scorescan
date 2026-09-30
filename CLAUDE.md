@@ -330,7 +330,7 @@ Registration → Pending → Approval → Active User
 | ORM | SQLAlchemy | 2.0.25 | Database abstraction layer |
 | Task Queue | Celery | 5.3.6 | Async task processing |
 | Message Broker | Valkey | 8 | Redis-compatible queue |
-| Auth | python-jose | 3.3.0 | JWT token handling |
+| Auth | PyJWT | 2.10+ | JWT token handling |
 | Password Hash | bcrypt | 4.0.1 | Secure password hashing |
 | OMR | Audiveris | 5.11 | Optical music recognition |
 | Music Theory | music21 | 9.1.0 | Transposition & analysis |
