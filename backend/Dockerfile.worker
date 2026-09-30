@@ -87,12 +87,14 @@ RUN useradd -m -r appuser && \
 USER appuser
 
 # Pre-warm oemer: on first use it downloads ~500MB of ONNX model weights into
-# ~/.cache/oemer. Baking them into the image avoids a long cold start on the
-# first real job. We feed oemer a blank page; it will "fail" to recognise any
-# notes, which is fine — we only care about the side effect of the model
-# download being completed and cached under the appuser home.
+# its package's checkpoints/ directory. Baking them into the image avoids a
+# long cold start on the first real job. We feed oemer a blank page; it will
+# "fail" to recognise any notes, which is fine - we only want the download.
+# The models are then loaded explicitly so an incompatible onnxruntime fails
+# the build instead of silently disabling the fallback.
 RUN python3 -c "from PIL import Image; Image.new('RGB',(640,480),'white').save('/tmp/prewarm.png')" \
     && (oemer -o /tmp /tmp/prewarm.png || true) \
-    && rm -f /tmp/prewarm.png /tmp/prewarm.musicxml
+    && rm -f /tmp/prewarm.png /tmp/prewarm.musicxml \
+    && python3 -c "import glob, onnxruntime as o; m = glob.glob('/app/.venv/lib/python3.12/site-packages/oemer/checkpoints/*/model.onnx'); assert m, 'oemer models missing'; [o.InferenceSession(p, providers=['CPUExecutionProvider']) for p in m]; print('oemer models load with onnxruntime', o.__version__)"
 
 CMD ["python3", "-m", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]
