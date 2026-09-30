@@ -45,31 +45,50 @@ class OemerService:
             return False
         return shutil.which(self.oemer_path) is not None
 
-    def _render_first_pdf_page(self, pdf_path: str, out_dir: str) -> Optional[str]:
-        """Render the first page of a PDF to PNG. Oemer is single-page only."""
+    @staticmethod
+    def _page_count(path: str) -> int:
+        """Number of pages in a PDF or TIFF (1 for other images)."""
         try:
-            import pypdfium2 as pdfium
+            if path.lower().endswith(".pdf"):
+                import pypdfium2 as pdfium
 
-            pdf = pdfium.PdfDocument(pdf_path)
-            try:
-                if len(pdf) == 0:
-                    return None
-                bitmap = pdf[0].render(scale=300 / 72.0, rotation=0)
-                out = os.path.join(out_dir, "page.png")
-                bitmap.to_pil().save(out, "PNG")
-                return out
-            finally:
-                pdf.close()
+                pdf = pdfium.PdfDocument(path)
+                try:
+                    return len(pdf)
+                finally:
+                    pdf.close()
+            with Image.open(path) as im:
+                return getattr(im, "n_frames", 1)
+        except Exception:
+            return 1
+
+    def _render_first_page(self, path: str, out_dir: str) -> Optional[str]:
+        """Write the first page of a PDF or TIFF as PNG. Oemer is single-page only."""
+        try:
+            out = os.path.join(out_dir, "page.png")
+            if path.lower().endswith(".pdf"):
+                import pypdfium2 as pdfium
+
+                pdf = pdfium.PdfDocument(path)
+                try:
+                    if len(pdf) == 0:
+                        return None
+                    bitmap = pdf[0].render(scale=300 / 72.0, rotation=0)
+                    bitmap.to_pil().save(out, "PNG")
+                finally:
+                    pdf.close()
+            else:
+                with Image.open(path) as im:
+                    im.convert("L").save(out, "PNG")
+            return out
         except Exception as e:
-            logger.exception(f"Failed to render PDF first page: {e}")
+            logger.exception(f"Failed to render first page: {e}")
             return None
 
     def _prepare_input(self, abs_input_path: str, work_dir: str) -> Optional[str]:
         """Return a PNG path ready to feed to oemer, or None on failure."""
-        is_pdf = abs_input_path.lower().endswith(".pdf")
-
-        if is_pdf:
-            page = self._render_first_pdf_page(abs_input_path, work_dir)
+        if abs_input_path.lower().endswith((".pdf", ".tif", ".tiff")):
+            page = self._render_first_page(abs_input_path, work_dir)
             if not page:
                 return None
             source = page
@@ -113,9 +132,9 @@ class OemerService:
                 return False, None, "Could not prepare input for oemer", []
 
             # Note first-page-only behavior so the user isn't surprised
-            if abs_input_path.lower().endswith(".pdf"):
+            if self._page_count(abs_input_path) > 1:
                 warnings.append(
-                    "Oemer processed only the first page of a multi-page PDF."
+                    "Oemer processed only the first page of a multi-page file."
                 )
 
             cmd = [self.oemer_path, "-o", work_dir, prepared]

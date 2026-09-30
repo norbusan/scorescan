@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from app.config import get_settings
 from app.utils.storage import get_file_path
@@ -28,6 +28,8 @@ _MUSICXML_NS = {
 }
 # Audiveris names split movements <stem>.mvt<N>.mxl
 _MOVEMENT_RE = re.compile(r"\.mvt(\d+)\.")
+# Inputs that can hold several pages; these are preprocessed page by page
+_MULTIPAGE_EXTENSIONS = (".pdf", ".tif", ".tiff")
 
 
 def get_musicxml_path_with_ext(user_id: str, job_id: str, ext: str) -> str:
@@ -135,56 +137,70 @@ class OMRService:
             logger.exception(f"Error extracting MXL file: {e}")
             return False
 
-    def _render_pdf_pages(self, pdf_path: str, out_dir: str, dpi: int = 300) -> List[str]:
-        """Render each PDF page to a PNG at the given DPI. Returns list of PNG paths."""
-        import pypdfium2 as pdfium
+    def _extract_pages(self, path: str, out_dir: str, dpi: int = 300) -> List[str]:
+        """Write each page of a PDF or (multi-page) TIFF as a PNG.
 
-        scale = dpi / 72.0
-        pdf = pdfium.PdfDocument(pdf_path)
-        try:
-            paths: List[str] = []
-            for i, page in enumerate(pdf):
-                bitmap = page.render(scale=scale, rotation=0)
-                pil = bitmap.to_pil()
-                page_path = os.path.join(out_dir, f"page_{i + 1:03d}.png")
-                pil.save(page_path, "PNG")
-                paths.append(page_path)
-            return paths
-        finally:
-            pdf.close()
+        PDF pages are rendered at the given DPI. Returns the list of PNG paths.
+        """
+        paths: List[str] = []
+        if path.lower().endswith(".pdf"):
+            import pypdfium2 as pdfium
 
-    def _combine_pages_to_pdf(self, image_paths: List[str], out_pdf: str) -> None:
-        """Combine preprocessed page images back into a single multi-page PDF for Audiveris."""
+            pdf = pdfium.PdfDocument(path)
+            try:
+                for i, page in enumerate(pdf):
+                    bitmap = page.render(scale=dpi / 72.0, rotation=0)
+                    page_path = os.path.join(out_dir, f"page_{i + 1:03d}.png")
+                    bitmap.to_pil().save(page_path, "PNG")
+                    paths.append(page_path)
+            finally:
+                pdf.close()
+        else:
+            with Image.open(path) as im:
+                for i, frame in enumerate(ImageSequence.Iterator(im)):
+                    page_path = os.path.join(out_dir, f"page_{i + 1:03d}.png")
+                    frame.convert("L").save(page_path, "PNG")
+                    paths.append(page_path)
+        return paths
+
+    @staticmethod
+    def _combine_pages_to_tiff(image_paths: List[str], out_tiff: str) -> None:
+        """Combine page images into one multi-page TIFF for Audiveris.
+
+        TIFF with deflate compression is lossless; Pillow's PDF writer would
+        JPEG-encode the pages and blur staff lines and stems.
+        """
         images = [Image.open(p) for p in image_paths]
         try:
-            rgb_images = [im.convert("RGB") for im in images]
-            rgb_images[0].save(
-                out_pdf,
-                "PDF",
-                resolution=300.0,
+            gray = [im.convert("L") for im in images]
+            gray[0].save(
+                out_tiff,
+                "TIFF",
                 save_all=True,
-                append_images=rgb_images[1:],
+                append_images=gray[1:],
+                compression="tiff_deflate",
+                dpi=(300, 300),
             )
         finally:
             for im in images:
                 im.close()
 
-    def _preprocess_pdf(self, pdf_path: str, work_dir: str) -> Optional[str]:
-        """Render PDF pages, preprocess each, and reassemble into a multi-page PDF.
+    def _preprocess_pages(self, path: str, work_dir: str) -> Optional[str]:
+        """Split a PDF/TIFF into pages, preprocess each, and reassemble.
 
-        Returns the path to the preprocessed PDF, or None on failure (caller should
-        fall back to the original PDF).
+        Returns the path to the preprocessed multi-page TIFF, or None on failure
+        (caller should fall back to the original file).
         """
         try:
             pages_dir = os.path.join(work_dir, "pages")
             os.makedirs(pages_dir, exist_ok=True)
 
-            page_paths = self._render_pdf_pages(pdf_path, pages_dir, dpi=300)
+            page_paths = self._extract_pages(path, pages_dir, dpi=300)
             if not page_paths:
-                logger.warning(f"PDF {pdf_path} produced no pages")
+                logger.warning(f"{path} produced no pages")
                 return None
 
-            logger.info(f"Rendered {len(page_paths)} PDF page(s) for preprocessing")
+            logger.info(f"Extracted {len(page_paths)} page(s) for preprocessing")
 
             processed_paths: List[str] = []
             for p in page_paths:
@@ -196,11 +212,11 @@ class OMRService:
                     logger.warning(f"Preprocess failed for {p}: {err}; using raw page")
                     processed_paths.append(p)
 
-            out_pdf = os.path.join(work_dir, "preprocessed.pdf")
-            self._combine_pages_to_pdf(processed_paths, out_pdf)
-            return out_pdf
+            out_tiff = os.path.join(work_dir, "preprocessed.tif")
+            self._combine_pages_to_tiff(processed_paths, out_tiff)
+            return out_tiff
         except Exception as e:
-            logger.exception(f"PDF preprocessing failed: {e}")
+            logger.exception(f"Multi-page preprocessing failed: {e}")
             return None
 
     def _prepare_input(self, abs_input_path: str, work_dir: str) -> str:
@@ -209,18 +225,19 @@ class OMRService:
             return abs_input_path
 
         input_path_obj = Path(abs_input_path)
-        if input_path_obj.suffix.lower() == ".pdf":
-            logger.info("Preprocessing PDF by rendering pages at 300 DPI")
-            pp_pdf = self._preprocess_pdf(abs_input_path, work_dir)
-            if pp_pdf:
-                logger.info(f"PDF preprocessing successful: {pp_pdf}")
-                return pp_pdf
-            logger.warning("PDF preprocessing failed; using original PDF")
+        if input_path_obj.suffix.lower() in _MULTIPAGE_EXTENSIONS:
+            logger.info("Preprocessing multi-page input page by page")
+            pp_path = self._preprocess_pages(abs_input_path, work_dir)
+            if pp_path:
+                logger.info(f"Multi-page preprocessing successful: {pp_path}")
+                return pp_path
+            logger.warning("Multi-page preprocessing failed; using original file")
             return abs_input_path
 
         logger.info("Preprocessing image for improved OMR accuracy")
+        # Always PNG: re-encoding a cleaned JPEG as JPEG loses detail
         preprocessed_path = os.path.join(
-            work_dir, f"{input_path_obj.stem}_preprocessed{input_path_obj.suffix}"
+            work_dir, f"{input_path_obj.stem}_preprocessed.png"
         )
         success, error = preprocess_for_omr(abs_input_path, preprocessed_path)
         if success:
