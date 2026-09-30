@@ -50,6 +50,9 @@ dev = [
 # or include it with `uv sync --group oemer`.
 oemer = [
     "oemer>=0.1.7",
+    # onnxruntime >= 1.28 rejects oemer 0.1.8's models at load time
+    # ("ConvTranspose ... pads must not contain negative values")
+    "onnxruntime-gpu<1.27",
 ]
 
 [tool.uv]
