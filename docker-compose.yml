@@ -4,7 +4,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      # Localhost only: clients go through the reverse proxy. Set
+      # BIND_ADDRESS=0.0.0.0 in .env to expose the port directly.
+      - "${BIND_ADDRESS:-127.0.0.1}:8000:8000"
     env_file: .env
     environment:
       - DATABASE_URL=sqlite:///./storage/scorescan.db
@@ -13,6 +15,10 @@ services:
       - STORAGE_PATH=/app/storage
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
       - DEBUG=${DEBUG:-false}
+      # Trust X-Forwarded-For only from the host and Docker networks (Apache
+      # via the published port, the frontend nginx) so rate limiting keys on
+      # the real client address
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-127.0.0.1,172.16.0.0/12}
     volumes:
       - ./backend/storage:/app/storage
     depends_on:
@@ -51,7 +57,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "${BIND_ADDRESS:-127.0.0.1}:5173:5173"
     env_file: .env
     environment:
       # Leave empty for relative URLs (recommended for proxy setups)
