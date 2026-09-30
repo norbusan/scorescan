@@ -10,6 +10,10 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Verified against when the user does not exist, so failed logins take the
+# same time for unknown and known emails
+_DUMMY_HASH = get_password_hash("timing-equalizer-not-a-password")
+
 
 class AuthService:
     """Service for authentication operations."""
@@ -88,6 +92,7 @@ class AuthService:
 
         user = self.get_user_by_email(email)
         if not user:
+            verify_password(password, _DUMMY_HASH)
             if settings.debug:
                 logger.debug(f"[AUTH DEBUG] Authentication failed: user not found")
             return None
@@ -106,6 +111,11 @@ class AuthService:
             )
 
         return user
+
+    @staticmethod
+    def burn_password_hash(password: str) -> None:
+        """Hash and discard, to match the timing of creating a user."""
+        get_password_hash(password)
 
     def is_email_registered(self, email: str) -> bool:
         """Check if an email is already registered."""

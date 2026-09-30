@@ -73,9 +73,8 @@ api.interceptors.response.use(
 
 // Auth API
 export const authApi = {
-  register: async (data: RegisterData): Promise<User> => {
-    const response = await api.post<User>('/auth/register', data);
-    return response.data;
+  register: async (data: RegisterData): Promise<void> => {
+    await api.post('/auth/register', data);
   },
   
   login: async (email: string, password: string): Promise<AuthTokens> => {

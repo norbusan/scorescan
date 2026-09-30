@@ -7,7 +7,7 @@ celery_app = Celery(
     "scorescan",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.process_score"],
+    include=["app.tasks.process_score", "app.tasks.send_email"],
 )
 
 celery_app.conf.update(

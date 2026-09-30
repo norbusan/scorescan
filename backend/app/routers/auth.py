@@ -12,6 +12,7 @@ from slowapi.util import get_remote_address
 from app.database import get_db
 from app.schemas.auth import (
     UserCreate,
+    RegisterResponse,
     UserLogin,
     Token,
     RefreshToken,
@@ -19,7 +20,6 @@ from app.schemas.auth import (
     PasswordResetConfirm,
     PasswordChange,
 )
-from app.schemas.user import UserResponse
 from app.services.auth import AuthService
 from app.utils.security import create_access_token, create_refresh_token, verify_token
 from app.utils.token_blacklist import (
@@ -122,20 +122,27 @@ def _get_current_user_token_pair(
 
 
 @router.post(
-    "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
+    "/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
 )
 @limiter.limit("10/hour")
 def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user account."""
+    """Register a new user account.
+
+    The response is the same whether or not the email is already registered,
+    so the endpoint cannot be used to probe for accounts.
+    """
     auth_service = AuthService(db)
 
     if auth_service.is_email_registered(user_data.email):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered"
-        )
+        # Spend the same bcrypt time as a real registration
+        auth_service.burn_password_hash(user_data.password)
+    else:
+        auth_service.create_user(user_data)
 
-    user = auth_service.create_user(user_data)
-    return user
+    return RegisterResponse(
+        message="Registration received. An administrator must approve the "
+        "account before you can log in."
+    )
 
 
 @router.post("/login", response_model=Token)
@@ -246,7 +253,7 @@ def request_password_reset(
     Always returns success even if email not found (security best practice).
     """
     from app.models.password_reset import PasswordResetToken
-    from app.services.email import email_service
+    from app.tasks.send_email import send_password_reset_email_task
 
     auth_service = AuthService(db)
     user = auth_service.get_user_by_email(reset_request.email)
@@ -273,7 +280,9 @@ def request_password_reset(
         db.add(reset_token)
         db.commit()
 
-        email_service.send_password_reset_email(user.email, token)
+        # Send from the worker: SMTP latency would otherwise reveal that
+        # the account exists
+        send_password_reset_email_task.delay(user.email, token)
 
     # Always return success to prevent email enumeration
     return {

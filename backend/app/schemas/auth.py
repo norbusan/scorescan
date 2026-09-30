@@ -23,6 +23,10 @@ class UserCreate(BaseModel):
         return _validate_password_strength(v)
 
 
+class RegisterResponse(BaseModel):
+    message: str
+
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
