@@ -118,6 +118,38 @@ def test_deskew_large_angle():
     print("OK deskew")
 
 
+def test_photo_on_dark_background():
+    """A tilted page photographed on a dark table is unwarped and straightened."""
+    print("\nTesting photo of a page on a dark background...")
+
+    import cv2
+    import numpy as np
+
+    page = _synthetic_page(20).astype(np.float32) * 0.8  # grey paper
+    h, w = page.shape
+    canvas = np.full((int(h * 1.3), int(w * 1.3)), 60, np.float32)
+    oy, ox = (canvas.shape[0] - h) // 2, (canvas.shape[1] - w) // 2
+    canvas[oy : oy + h, ox : ox + w] = page
+    src = np.float32([[ox, oy], [ox + w, oy], [ox + w, oy + h], [ox, oy + h]])
+    dst = src + np.float32([[50, 30], [-40, 5], [-5, -25], [30, -10]])
+    canvas = cv2.warpPerspective(
+        canvas, cv2.getPerspectiveTransform(src, dst), canvas.shape[::-1], borderValue=60
+    )
+    m = cv2.getRotationMatrix2D((canvas.shape[1] / 2, canvas.shape[0] / 2), 7, 1.0)
+    photo = cv2.warpAffine(canvas, m, canvas.shape[::-1], borderValue=60).astype(np.uint8)
+
+    pre = ImagePreprocessor()
+    corrected = pre._correct_perspective(photo)
+    assert corrected is not None, "page boundary not found"
+    _, residual = pre._deskew(corrected)
+    assert abs(residual) < 0.5, residual
+    # Rotated photo without perspective correction: deskew alone must find it
+    _, angle = pre._deskew(cv2.warpAffine(canvas, m, canvas.shape[::-1], borderValue=60).astype(np.uint8))
+    assert abs(angle + 7) <= 1.0, angle
+
+    print("OK photo on dark background")
+
+
 def test_imports():
     """Test that all required dependencies are available."""
     print("\nTesting imports...")
@@ -168,6 +200,7 @@ def main():
         test_convenience_function()
         test_interline_and_scaling()
         test_deskew_large_angle()
+        test_photo_on_dark_background()
 
         print("\n" + "=" * 60)
         print("✅ All tests passed!")

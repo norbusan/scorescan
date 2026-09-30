@@ -181,8 +181,9 @@ class ImagePreprocessor:
         """
         height, width = image.shape
 
-        # Work on a thumbnail for speed; deskew angle is scale-invariant
-        max_dim = 1000
+        # Work on a thumbnail for speed; deskew angle is scale-invariant. Keep
+        # it large enough that staff lines of low-resolution photos survive.
+        max_dim = 1500
         scale = min(1.0, max_dim / max(height, width))
         if scale < 1.0:
             thumb = cv2.resize(
@@ -193,9 +194,12 @@ class ImagePreprocessor:
         else:
             thumb = image
 
-        # Binarize so dark ink = 1, paper = 0 (Otsu handles varied lighting)
-        _, binary = cv2.threshold(
-            thumb, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        # Mark thin dark strokes (ink = 1) with a local threshold. A global
+        # (Otsu) threshold would also mark a dark background around a
+        # photographed page, and the page silhouette would then dominate the
+        # projection profile instead of the staff lines.
+        binary = cv2.adaptiveThreshold(
+            thumb, 1, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10
         )
 
         def profile_variance(rotated: np.ndarray) -> float:
@@ -276,28 +280,26 @@ class ImagePreprocessor:
         Returns:
             Perspective-corrected image, or None if correction failed
         """
-        # Apply edge detection
+        # The page is the largest light region: Otsu separates paper from a
+        # darker background well, and closing fills the notation inside it.
+        # (Canny edge fragments of a noisy photo rarely form a closed quad.)
+        h, w = image.shape
         blurred = cv2.GaussianBlur(image, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+        _, paper = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        k = max(3, int(min(h, w) * 0.02)) | 1
+        paper = cv2.morphologyEx(paper, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
 
-        # Find contours
         contours, _ = cv2.findContours(
-            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            paper, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-
         if not contours:
             return None
-
-        # Sort contours by area and take the largest
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+        page = max(contours, key=cv2.contourArea)
 
         document_contour = None
-        for contour in contours:
-            # Approximate the contour
-            peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-
-            # If the contour has 4 points, assume it's the document
+        peri = cv2.arcLength(page, True)
+        for eps in (0.02, 0.03, 0.05):
+            approx = cv2.approxPolyDP(page, eps * peri, True)
             if len(approx) == 4:
                 document_contour = approx
                 break
@@ -312,10 +314,13 @@ class ImagePreprocessor:
         image_area = float(image.shape[0] * image.shape[1])
         contour_area = float(cv2.contourArea(document_contour))
         coverage = contour_area / image_area if image_area > 0 else 0.0
-        if coverage < 0.5:
+        if coverage > 0.97:
+            # The page fills the frame (scan, rendered PDF): nothing to unwarp
+            return None
+        if coverage < 0.3:
             logger.info(
                 f"Perspective correction skipped: candidate quad covers "
-                f"only {coverage:.1%} of the image (need >=50%)"
+                f"only {coverage:.1%} of the image (need >=30%)"
             )
             return None
 
