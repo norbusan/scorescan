@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Lock, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../api/client';
+import api, { errorMessage } from '../api/client';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -55,9 +55,9 @@ export default function Settings() {
       setTimeout(() => {
         setChangeSuccess(false);
       }, 5000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Change password error:', error);
-      const message = error.response?.data?.detail || 'Failed to change password. Please check your current password.';
+      const message = errorMessage(error, 'Failed to change password. Please check your current password.');
       toast.error(message);
     } finally {
       setIsSubmitting(false);

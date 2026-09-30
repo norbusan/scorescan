@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Music, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../api/client';
+import api, { errorMessage } from '../api/client';
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -55,9 +55,9 @@ export default function ResetPassword() {
       setTimeout(() => {
         navigate('/login');
       }, 3000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Password reset error:', error);
-      const message = error.response?.data?.detail || 'Failed to reset password. The link may be expired or invalid.';
+      const message = errorMessage(error, 'Failed to reset password. The link may be expired or invalid.');
       toast.error(message);
     } finally {
       setIsSubmitting(false);

@@ -47,9 +47,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (email: string, password: string) => {
+    // No auto-login: new accounts need admin approval first
     await authApi.register({ email, password });
-    // Auto-login after registration
-    await login(email, password);
   };
 
   const logout = async () => {

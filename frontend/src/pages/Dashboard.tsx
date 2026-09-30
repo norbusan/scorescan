@@ -6,7 +6,7 @@ import CameraCapture from '../components/Upload/CameraCapture';
 import TransposeOptions, { TransposeSettings } from '../components/Transpose/TransposeOptions';
 import JobList from '../components/Jobs/JobList';
 import { useJobs } from '../hooks/useJobs';
-import { jobsApi } from '../api/client';
+import { jobsApi, errorMessage } from '../api/client';
 
 export default function Dashboard() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -75,8 +75,7 @@ export default function Dashboard() {
       });
       fetchJobs();
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: string } } };
-      const message = err.response?.data?.detail || 'Failed to upload score';
+      const message = errorMessage(error, 'Failed to upload score');
       toast.error(message);
     } finally {
       setIsUploading(false);

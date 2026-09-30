@@ -71,6 +71,16 @@ api.interceptors.response.use(
   }
 );
 
+// FastAPI sends `detail` as a string, or as a list of {msg} objects on 422
+export const errorMessage = (error: unknown, fallback: string): string => {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail.map((d) => String(d?.msg ?? d).replace(/^Value error, /, '')).join('; ');
+  }
+  return fallback;
+};
+
 // Auth API
 export const authApi = {
   register: async (data: RegisterData): Promise<void> => {

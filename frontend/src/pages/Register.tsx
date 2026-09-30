@@ -19,7 +19,7 @@ export default function Register() {
         </div>
 
         <div className="card p-6 sm:p-8">
-          <RegisterForm onSuccess={() => navigate('/dashboard')} />
+          <RegisterForm onSuccess={() => navigate('/login')} />
         </div>
       </div>
     </div>

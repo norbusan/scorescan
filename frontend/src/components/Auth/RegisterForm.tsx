@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
+import { errorMessage } from '../../api/client';
 
 interface RegisterFormProps {
   onSuccess?: () => void;
@@ -35,8 +36,7 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
       toast.success('Account created! Please wait for administrator approval before logging in.');
       onSuccess?.();
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: string } } };
-      const message = err.response?.data?.detail || 'Registration failed. Please try again.';
+      const message = errorMessage(error, 'Registration failed. Please try again.');
       toast.error(message);
     } finally {
       setIsLoading(false);

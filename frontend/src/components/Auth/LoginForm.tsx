@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
+import { errorMessage } from '../../api/client';
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -23,8 +24,7 @@ export default function LoginForm({ onSuccess }: LoginFormProps) {
       toast.success('Welcome back!');
       onSuccess?.();
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: string } } };
-      const message = err.response?.data?.detail || 'Login failed. Please check your credentials.';
+      const message = errorMessage(error, 'Login failed. Please check your credentials.');
       toast.error(message);
     } finally {
       setIsLoading(false);
