@@ -443,6 +443,10 @@ class OMRService:
             "JavaFX",  # Headless startup noise
             "display :0",
             "Could not load library",  # Often benign
+            # OCR is disabled unless enable_ocr is set; Audiveris still warns
+            # once per sheet that no Tesseract languages are installed
+            "No installed OCR languages",
+            "TesseractOCR",
         )
 
         for stream in (stdout or "", stderr or ""):
