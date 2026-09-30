@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime, timedelta
+import hashlib
 import uuid
 import secrets
 
@@ -14,6 +15,7 @@ class PasswordResetToken(Base):
     user_id = Column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    # SHA-256 hex digest of the token; the token itself is only in the email
     token = Column(String(64), unique=True, index=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used = Column(
@@ -28,6 +30,11 @@ class PasswordResetToken(Base):
     def generate_token() -> str:
         """Generate a secure random token"""
         return secrets.token_urlsafe(32)
+
+    @staticmethod
+    def hash_token(token: str) -> str:
+        """Digest stored in the database, so a leaked DB cannot reset passwords"""
+        return hashlib.sha256(token.encode()).hexdigest()
 
     def is_expired(self) -> bool:
         """Check if the token has expired"""

@@ -265,7 +265,9 @@ def request_password_reset(
         )
 
         reset_token = PasswordResetToken(
-            user_id=user.id, token=token, expires_at=expires_at
+            user_id=user.id,
+            token=PasswordResetToken.hash_token(token),
+            expires_at=expires_at,
         )
 
         db.add(reset_token)
@@ -294,7 +296,10 @@ def confirm_password_reset(
     # Find the token
     reset_token = (
         db.query(PasswordResetToken)
-        .filter(PasswordResetToken.token == reset_confirm.token)
+        .filter(
+            PasswordResetToken.token
+            == PasswordResetToken.hash_token(reset_confirm.token)
+        )
         .first()
     )
 
